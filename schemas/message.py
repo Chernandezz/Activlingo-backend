@@ -3,15 +3,16 @@ from typing import Literal
 from datetime import datetime
 
 class MessageCreate(BaseModel):
-    sender: Literal['user', 'bot']
+    chat_id: int
+    sender: Literal["user", "bot"]
     content: str
 
 class Message(BaseModel):
-    id: str
-    chat_id: str
-    sender: str
+    id: int
+    chat_id: int
+    sender: Literal["user", "bot"]
     content: str
     timestamp: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
