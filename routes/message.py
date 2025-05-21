@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query
 from typing import List
 from schemas.message import Message, MessageCreate
-from services.message_service import create_message, get_messages, delete_message
+from services.message_service import create_message, get_messages, delete_message, handle_human_message
 
 message_router = APIRouter()
 
@@ -11,7 +11,8 @@ def list_messages(chat_id: int = Query(...)):
 
 @message_router.post("/", response_model=Message)
 def create(msg: MessageCreate):
-    created = create_message(msg)
+    created = handle_human_message(msg)
+    
     if not created:
         raise HTTPException(status_code=500, detail="Error creating message")
     return created
