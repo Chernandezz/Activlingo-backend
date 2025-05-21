@@ -4,13 +4,13 @@ from datetime import datetime
 
 class MessageCreate(BaseModel):
     chat_id: int
-    sender: Literal["user", "bot"]
+    sender: Literal["user", "ai", "system"]
     content: str
 
 class Message(BaseModel):
     id: int
     chat_id: int
-    sender: Literal["user", "bot"]
+    sender: Literal["user", "ai", "system"]
     content: str
     timestamp: datetime
 

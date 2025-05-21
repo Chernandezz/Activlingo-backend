@@ -1,10 +1,20 @@
 from config.supabase_client import supabase
 from schemas.message import Message, MessageCreate
+from postgrest.exceptions import APIError
 
-def create_message(message_data: MessageCreate) -> Message | None:
-    data = message_data.model_dump()
-    response = supabase.table("messages").insert(data).execute()
-    return response.data[0] if response.data else None
+def create_message(chat_id: int, sender: str, content: str) -> Message | None:
+    data = {
+        "chat_id": chat_id,
+        "sender": sender,
+        "content": content
+    }
+
+    try:
+        response = supabase.table("messages").insert(data).execute()
+        return response.data[0] if response.data else None
+    except APIError as e:
+        print("Supabase insert error:", str(e))
+        return None
 
 def get_messages(chat_id: int) -> list[Message]:
     response = supabase.table("messages") \

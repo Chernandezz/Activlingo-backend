@@ -13,6 +13,7 @@ class Chat(BaseModel):
     title: str
     language: str
     level: str
+    initial_message: str
     created_at: datetime
 
     class Config:
