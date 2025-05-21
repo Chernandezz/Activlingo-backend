@@ -23,5 +23,5 @@ Start the conversation. and Remember to be very natural and person-like. this is
 """
 
 
-def get_chat_response(messages):
+def get_ai_response(messages):
     return chat_agent.invoke(messages)

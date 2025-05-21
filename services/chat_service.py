@@ -2,7 +2,7 @@ from config.supabase_client import supabase
 from schemas.chat import Chat
 from schemas.chat_create import ChatCreate
 from postgrest.exceptions import APIError
-from ai.chat_agent import generate_system_message, get_chat_response
+from ai.chat_agent import generate_system_message, get_ai_response
 from services.message_service import create_message
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
@@ -17,7 +17,7 @@ def create_chat(user_id: int, chat_data: ChatCreate) -> Chat | None:
         if chat:
             system_msg = generate_system_message(chat["role"], chat["context"])
             create_message(chat_id=chat["id"], sender="system", content=system_msg)
-            bot_response = get_chat_response([SystemMessage(content=system_msg)])
+            bot_response = get_ai_response([SystemMessage(content=system_msg)])
             create_message(chat_id=chat["id"], sender="ai", content=bot_response.content)
             chat["initial_message"] = bot_response.content
 
