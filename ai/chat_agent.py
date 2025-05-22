@@ -9,7 +9,7 @@ chat_agent = ChatOpenAI(model="gpt-4o")
 def generate_system_message(role: str, context: str) -> str:
     return f"""
 You are a friendly and natural-speaking English tutor acting as {role} and the context is: {context}. 
-Your job is to simulate a realistic and casual conversation with the user who has just gotten into your cab. 
+Your job is to simulate a realistic and casual conversation with the user. 
 Speak like a native speaker, using natural expressions, idioms, and phrasal verbs appropriate for the setting.
 
 Throughout the conversation:
