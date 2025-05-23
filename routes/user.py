@@ -12,23 +12,23 @@ key = os.getenv("FERNET_KEY")
 f = Fernet(key)
 
 
-user  = APIRouter()
+user_router  = APIRouter()
 
 
-@user.get("/users", tags=["users"])
+@user_router.get("")
 async def get_users():
     results = supabase.table("users").select("*").execute()
     return results.data
 
-@user.post("/users", tags=["users"])
+@user_router.post("")
 async def get_users(user: UserCreate):
     data = user.model_dump()
     data["password"] = f.encrypt(user.password.encode()).decode()
     results = supabase.table("users").insert(data).execute()
     return results.data
 
-@user.get("/users/{user_id}", tags=["users"])
-async def get_user(user_id: str):
+@user_router.get("/{user_id}")
+async def get_user(user_id: int):
     results = supabase.table("users").select("*").eq("id", user_id).execute()
     
     if not results.data:
@@ -36,15 +36,15 @@ async def get_user(user_id: str):
     
     return {"success": True, "user": results.data[0]}
 
-@user.delete("/users/{user_id}", tags=["users"])
-async def delete_user(user_id: str):
+@user_router.delete("/{user_id}")
+async def delete_user(user_id: int):
     results = supabase.table("users").delete().eq("id", user_id).execute()
     if not results.data:
         raise HTTPException(status_code=404, detail="User not found")
 
 
-@user.put("/users/{user_id}", tags=["users"])
-async def update_user(user_id: str, user_data: UserUpdate):
+@user_router.put("/{user_id}")
+async def update_user(user_id: int, user_data: UserUpdate):
     try:
         data = user_data.model_dump()
 
