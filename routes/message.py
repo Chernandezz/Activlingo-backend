@@ -2,6 +2,10 @@ from fastapi import APIRouter, HTTPException, Query
 from typing import List
 from schemas.message import Message, MessageCreate
 from services.message_service import create_message, get_messages, delete_message, handle_human_message
+from fastapi import UploadFile, File
+import tempfile
+from ai.transcriber_agent import transcribe_audio_openai
+
 
 message_router = APIRouter()
 
@@ -23,3 +27,20 @@ def delete(message_id: int):
     if not success:
         raise HTTPException(status_code=404, detail="Message not found or already deleted")
     return {"success": True, "message": "Message deleted successfully"}
+
+
+@message_router.post("/transcribe-audio/")
+async def transcribe_audio(file: UploadFile = File(...), chat_id: int = Query(...)) -> dict:
+
+    transcription = await transcribe_audio_openai(file)
+
+    msg = MessageCreate(chat_id=chat_id, sender="human", content=transcription)
+    response = handle_human_message(msg)
+
+    if not response:
+        raise HTTPException(status_code=500, detail="AI failed to respond")
+
+    return {
+        "user_text": transcription,
+        "ai_text": response.content
+    }
