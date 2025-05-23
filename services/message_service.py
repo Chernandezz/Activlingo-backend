@@ -2,6 +2,7 @@ from config.supabase_client import supabase
 from schemas.message import Message, MessageCreate
 from postgrest.exceptions import APIError
 from ai.chat_agent import get_ai_response
+from ai.analyzer_agent import analyze_message
 
 from schemas.message import Message
 
@@ -39,6 +40,8 @@ def handle_human_message(msg: MessageCreate) -> Message | None:
         elif message.sender == "system":
             lc_messages.append({"role": "system", "content": message.content})
     response = get_ai_response(lc_messages)
+    feedback_text = analyze_message(response.content, message.content)
+    print("Feedback:", feedback_text)
     ai_msg = create_message(
         chat_id=msg.chat_id,
         sender="ai",
