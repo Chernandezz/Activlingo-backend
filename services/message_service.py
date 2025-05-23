@@ -3,6 +3,8 @@ from schemas.message import Message, MessageCreate
 from postgrest.exceptions import APIError
 from ai.chat_agent import get_ai_response
 
+from schemas.message import Message
+
 def create_message(chat_id: int, sender: str, content: str) -> Message | None:
     data = {
         "chat_id": chat_id,
@@ -12,10 +14,11 @@ def create_message(chat_id: int, sender: str, content: str) -> Message | None:
 
     try:
         response = supabase.table("messages").insert(data).execute()
-        return response.data[0] if response.data else None
+        return Message(**response.data[0]) if response.data else None
     except APIError as e:
         print("Supabase insert error:", str(e))
         return None
+
     
 def handle_human_message(msg: MessageCreate) -> Message | None:
     human_msg = create_message(
