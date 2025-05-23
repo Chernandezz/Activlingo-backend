@@ -3,8 +3,13 @@ from typing import List
 from schemas.message import Message, MessageCreate
 from services.message_service import create_message, get_messages, delete_message, handle_human_message
 from fastapi import UploadFile, File
-import tempfile
 from ai.transcriber_agent import transcribe_audio_openai
+from ai.synthesizer_agent import synthesize_speech
+from fastapi.responses import StreamingResponse
+from io import BytesIO
+
+from pydantic import BaseModel
+
 
 
 message_router = APIRouter()
@@ -44,3 +49,16 @@ async def transcribe_audio(file: UploadFile = File(...), chat_id: int = Query(..
         "user_text": transcription,
         "ai_text": response.content
     }
+
+
+
+class SpeakRequest(BaseModel):
+    text: str
+
+@message_router.post("/speak")
+def speak_text(body: SpeakRequest):
+    audio_bytes = synthesize_speech(body.text)
+    return StreamingResponse(
+        BytesIO(audio_bytes),
+        media_type="audio/mpeg"
+    )
