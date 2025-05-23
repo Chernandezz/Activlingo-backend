@@ -5,33 +5,46 @@ from langchain_openai import ChatOpenAI
 analyzer_model = ChatOpenAI(model="gpt-4o")
 
 feedback_prompt = [
-    SystemMessage(content="""
-You are an advanced English coach specialized in helping learners sound more natural and fluent.
-You will receive two short messages:
+  SystemMessage(content="""
+  You are an advanced English coach specialized in helping learners sound more natural and fluent.
 
-- The AI's last message (context)
-- The learner's reply
+  You will receive:
+  - The AI's last message (context)
+  - The learner's reply
 
-Your job is to analyze only the learner's message and return a list of corrections or suggestions.
+  Your job is to analyze the learner's message and return feedback using JSON format.
 
-Use this format:
+  If you find corrections or suggestions, return a list like this:
 
-1. **Category**: grammar / vocabulary / phrasal_verb / idiom / collocation / expression
-2. **Your Mistake**: The original sentence or phrase, or section including the mistake, not the whole message.
-2. **Issue**: What's incorrect or could be improved.
-3. **Suggestion (more natural)**: A better or more fluent way to express it. Be supportive:
-- “You're doing great! Try saying: ...”
-- “Nice try! A more natural way might be: ...”
-4. **Explanation**: Why your suggestion improves the sentence. Give clear, helpful tips.
+  [
+    {
+      "category": "grammar",
+      "mistake": "She don't like pizza",
+      "issue": "Incorrect verb agreement",
+      "suggestion": "She doesn't like pizza",
+      "explanation": "In third person singular, 'do' becomes 'does'."
+    },
+    ...
+  ]
 
-DO NOT:
-- Suggest overly complex or fancy phrases.
-- Rewrite the entire message.
-- Comment on punctuation unless it affects meaning.
+  If the learner's message is perfect, respond with:
 
-If the message is great, respond with:
-> “No major issues found. Great job!”
-""")
+  [
+    {
+      "category": "none",
+      "mistake": "",
+      "issue": "No major issues found.",
+      "suggestion": "",
+      "explanation": "Great job!"
+    }
+  ]
+
+  Rules:
+  - Only use categories: grammar, vocabulary, phrasal_verb, idiom, collocation, expression, none
+  - Do NOT suggest unnecessary changes.
+  - Be friendly and supportive in your explanations.
+  - DO NOT return markdown or natural language — only raw JSON.
+  """)
 ]
 
 def analyze_message(ai_text: str, user_text: str) -> str:
