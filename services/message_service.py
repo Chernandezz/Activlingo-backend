@@ -1,6 +1,7 @@
 import json
 import threading
 import asyncio
+from uuid import UUID
 
 from ai.multi_agent_analyzer import analyze_with_multiple_agents
 from ai.analyzer_agent import analyze_message
@@ -11,10 +12,10 @@ from ai.chat_agent import get_ai_response
 from services.analysis_service import save_analysis
 
 
-def create_message(chat_id: int, sender: str, content: str) -> Message | None:
+def create_message(chat_id: UUID, sender: str, content: str) -> Message | None:
     try:
         response = supabase.table("messages").insert({
-            "chat_id": chat_id,
+            "chat_id": str(chat_id),
             "sender": sender,
             "content": content
         }).execute()
@@ -48,7 +49,6 @@ def handle_human_message(msg: MessageCreate) -> Message | None:
     def analyze_and_save():
         async def async_task():
             try:
-                # Cambia esta línea según si quieres usar el análisis múltiple o simple:
                 use_multi_agent = False
 
                 if use_multi_agent:
@@ -56,7 +56,6 @@ def handle_human_message(msg: MessageCreate) -> Message | None:
                 else:
                     raw_feedback = analyze_message(response.content, msg.content)
 
-                # 🧠 Normaliza la salida (str → list[dict])
                 if isinstance(raw_feedback, str):
                     feedback_data = json.loads(raw_feedback)
                 elif isinstance(raw_feedback, list):
@@ -84,16 +83,25 @@ def handle_human_message(msg: MessageCreate) -> Message | None:
     return ai_msg
 
 
-def get_messages(chat_id: int) -> list[Message]:
-    response = supabase.table("messages") \
-        .select("*") \
-        .eq("chat_id", chat_id) \
-        .order("timestamp") \
+def get_messages(chat_id: UUID) -> list[Message]:
+    response = (
+        supabase
+        .table("messages")
+        .select("*")
+        .eq("chat_id", str(chat_id))
+        .order("timestamp")
         .execute()
+    )
     raw_data = response.data or []
     return [Message(**m) for m in raw_data]
 
 
-def delete_message(message_id: int) -> bool:
-    response = supabase.table("messages").delete().eq("id", message_id).execute()
+def delete_message(message_id: UUID) -> bool:
+    response = (
+        supabase
+        .table("messages")
+        .delete()
+        .eq("id", str(message_id))
+        .execute()
+    )
     return isinstance(response.data, list) and len(response.data) > 0

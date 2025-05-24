@@ -1,33 +1,29 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, UploadFile, File
+from fastapi.responses import StreamingResponse
 from typing import List
+from uuid import UUID
+from io import BytesIO
 from schemas.message import Message, MessageCreate
 from services.message_service import create_message, get_messages, delete_message, handle_human_message
-from fastapi import UploadFile, File
 from ai.transcriber_agent import transcribe_audio_openai
 from ai.synthesizer_agent import synthesize_speech
-from fastapi.responses import StreamingResponse
-from io import BytesIO
-
 from pydantic import BaseModel
-
-
 
 message_router = APIRouter()
 
 @message_router.get("/", response_model=List[Message])
-def list_messages(chat_id: int = Query(...)):
+def list_messages(chat_id: UUID = Query(...)):
     return get_messages(chat_id)
 
 @message_router.post("/", response_model=Message)
 def create(msg: MessageCreate):
     created = handle_human_message(msg)
-    
     if not created:
         raise HTTPException(status_code=500, detail="Error creating message")
     return created
 
 @message_router.delete("/{message_id}")
-def delete(message_id: int):
+def delete(message_id: UUID):
     success = delete_message(message_id)
     if not success:
         raise HTTPException(status_code=404, detail="Message not found or already deleted")
@@ -35,10 +31,8 @@ def delete(message_id: int):
 
 
 @message_router.post("/transcribe-audio/")
-async def transcribe_audio(file: UploadFile = File(...), chat_id: int = Query(...)) -> dict:
-
+async def transcribe_audio(file: UploadFile = File(...), chat_id: UUID = Query(...)) -> dict:
     transcription = await transcribe_audio_openai(file)
-
     msg = MessageCreate(chat_id=chat_id, sender="human", content=transcription)
     response = handle_human_message(msg)
 
@@ -49,8 +43,6 @@ async def transcribe_audio(file: UploadFile = File(...), chat_id: int = Query(..
         "user_text": transcription,
         "ai_text": response.content
     }
-
-
 
 class SpeakRequest(BaseModel):
     text: str
