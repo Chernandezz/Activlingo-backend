@@ -5,7 +5,7 @@ from datetime import datetime
 class MessageAnalysis(BaseModel):
     id: int
     message_id: int
-    category: Literal["grammar", "vocabulary", "phrasal_verb", "idiom", "collocation", "expression"]
+    category: str
     mistake: str
     issue: str
     suggestion: str

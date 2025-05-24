@@ -18,11 +18,11 @@ feedback_prompt = [
 
   [
     {
-      "category": "grammar",
+      "category": "gramatica",
       "mistake": "She don't like pizza",
-      "issue": "Incorrect verb agreement",
+      "issue": "Verbo incorreto",
       "suggestion": "She doesn't like pizza",
-      "explanation": "In third person singular, 'do' becomes 'does'."
+      "explanation": "En tercera persona del singular, el verbo 'do' se conjuga como 'does'. Por eso, debes usar 'doesn't' en lugar de 'don't'."
     },
     ...
   ]
@@ -31,11 +31,11 @@ feedback_prompt = [
 
   [
     {
-      "category": "none",
+      "category": "null",
       "mistake": "",
-      "issue": "No major issues found.",
+      "issue": "No se encontraron errores",
       "suggestion": "",
-      "explanation": "Great job!"
+      "explanation": "Gran Trabajo!"
     }
   ]
 
@@ -44,6 +44,8 @@ feedback_prompt = [
   - Do NOT suggest unnecessary changes.
   - Be friendly and supportive in your explanations.
   - DO NOT return markdown or natural language — only raw JSON.
+  - Give the feedback in Spanish.
+  - Use the same format as the examples.
   """)
 ]
 
