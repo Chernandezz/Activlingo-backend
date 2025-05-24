@@ -1,7 +1,6 @@
 from fastapi import FastAPI
 from routes.chat import chat_router
 from routes.message import message_router
-from routes.user import user_router
 from routes.analysis import analysis_router
 from fastapi.middleware.cors import CORSMiddleware
 
