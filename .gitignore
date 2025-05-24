@@ -1,0 +1,48 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Environment variables and config
+.env
+.env.*
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# VSCode config
+.vscode/
+
+# Pytest cache
+.pytest_cache/
+
+# Mypy
+.mypy_cache/
+
+# Logs
+*.log
+
+# Databases and dumps
+*.sqlite3
+*.db
+*.bak
+
+# Coverage reports
+htmlcov/
+.coverage
+
+# Compiled output
+dist/
+build/
+
+# Whisper models (if downloaded locally)
+whisper_models/
+
+# FastAPI OpenAPI generated files (optional)
+openapi.json
