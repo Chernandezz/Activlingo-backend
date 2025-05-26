@@ -5,16 +5,13 @@ from routes.analysis import analysis_router
 from fastapi.middleware.cors import CORSMiddleware
 from routes.user_dictionary import user_dictionary_router
 from routes.auth import auth_router
-import os
-
 
 app = FastAPI()
 
-allowed_origin = os.getenv("ALLOWED_ORIGIN", "http://localhost:4200")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[allowed_origin],
+    allow_origins=["http://localhost:4200", "http://147.182.130.162" ], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
