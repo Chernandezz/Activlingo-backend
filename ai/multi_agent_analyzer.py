@@ -6,7 +6,7 @@ from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
 from typing import List
 import json
 
-model = ChatOpenAI(model="gpt-4o")
+model = ChatOpenAI(model="gpt-3.5-turbo-0125")
 
 def get_prompt(category: str, system_instruction: str):
     return ChatPromptTemplate.from_messages([
