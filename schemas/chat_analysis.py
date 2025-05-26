@@ -1,10 +1,11 @@
 from pydantic import BaseModel
 from typing import Literal
 from datetime import datetime
+from uuid import UUID
 
 class MessageAnalysis(BaseModel):
-    id: int
-    message_id: int
+    id: UUID
+    message_id: UUID
     category: str
     mistake: str
     issue: str

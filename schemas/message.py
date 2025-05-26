@@ -1,15 +1,16 @@
 from pydantic import BaseModel
 from typing import Literal
 from datetime import datetime
+from uuid import UUID
 
 class MessageCreate(BaseModel):
-    chat_id: int
+    chat_id: UUID
     sender: Literal["human", "ai", "system"]
     content: str
 
 class Message(BaseModel):
-    id: int
-    chat_id: int
+    id: UUID
+    chat_id: UUID
     sender: Literal["human", "ai", "system"]
     content: str
     timestamp: datetime
