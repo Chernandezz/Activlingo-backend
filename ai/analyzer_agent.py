@@ -2,7 +2,7 @@ from openai import OpenAI
 from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
 from langchain_openai import ChatOpenAI
 
-analyzer_model = ChatOpenAI(model="gpt-4o")
+analyzer_model = ChatOpenAI(model="gpt-3.5-turbo-0125")
 
 feedback_prompt = [
   SystemMessage(content="""
