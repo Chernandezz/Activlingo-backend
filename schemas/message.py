@@ -4,6 +4,7 @@ from datetime import datetime
 from uuid import UUID
 
 class MessageCreate(BaseModel):
+    user_id: UUID
     chat_id: UUID
     sender: Literal["human", "ai", "system"]
     content: str

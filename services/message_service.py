@@ -10,6 +10,7 @@ from schemas.message import Message, MessageCreate
 from postgrest.exceptions import APIError
 from ai.chat_agent import get_ai_response
 from services.analysis_service import save_analysis
+from services.user_dictionary_service import update_word_usage
 
 
 def create_message(chat_id: UUID, sender: str, content: str) -> Message | None:
@@ -33,6 +34,10 @@ def handle_human_message(msg: MessageCreate) -> Message | None:
     )
     if not human_msg:
         return None
+    try:
+        update_word_usage(msg.user_id, msg.content)
+    except Exception as e:
+        print(f"⚠️ Error updating word usage: {str(e)}")
 
     history = get_messages(msg.chat_id)
     lc_messages = []
