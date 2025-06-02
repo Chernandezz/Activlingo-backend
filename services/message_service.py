@@ -27,65 +27,47 @@ def create_message(chat_id: UUID, sender: str, content: str) -> Message | None:
 
 
 def handle_human_message(msg: MessageCreate) -> Message | None:
-    human_msg = create_message(
-        chat_id=msg.chat_id,
-        sender="human",
-        content=msg.content
-    )
+    # 1. Guardar mensaje humano
+    human_msg = create_message(msg.chat_id, "human", msg.content)
     if not human_msg:
         return None
-    try:
-        update_word_usage(msg.user_id, msg.content)
-    except Exception as e:
-        print(f"⚠️ Error updating word usage: {str(e)}")
 
+    # 2. Obtener historial y respuesta IA
     history = get_messages(msg.chat_id)
-    lc_messages = []
-    for message in history:
-        if message.sender == "human":
-            lc_messages.append({"role": "human", "content": message.content})
-        elif message.sender == "ai":
-            lc_messages.append({"role": "assistant", "content": message.content})
-        elif message.sender == "system":
-            lc_messages.append({"role": "system", "content": message.content})
+    lc_messages = [{"role": m.sender, "content": m.content} for m in history if m.sender in {"human", "ai", "system"}]
 
     response = get_ai_response(lc_messages)
 
-    def analyze_and_save():
-        async def async_task():
-            try:
-                use_multi_agent = False
+    # 3. Guardar mensaje de la IA
+    ai_msg = create_message(msg.chat_id, "ai", response.content)
 
-                if use_multi_agent:
-                    raw_feedback = await analyze_with_multiple_agents(response.content, msg.content)
-                else:
-                    raw_feedback = analyze_message(response.content, msg.content)
+    # 4. Lanzar procesamiento pesado en segundo plano
+    threading.Thread(target=process_background_tasks, args=(msg, human_msg.id, response.content)).start()
 
-                if isinstance(raw_feedback, str):
-                    feedback_data = json.loads(raw_feedback)
-                elif isinstance(raw_feedback, list):
-                    feedback_data = raw_feedback
-                else:
-                    print("⚠️ Unexpected feedback format:", type(raw_feedback))
-                    return
-
-                print("🧠 Parsed feedback:", feedback_data)
-                save_analysis(human_msg.id, feedback_data)
-
-            except Exception as e:
-                print("⚠️ Could not analyze/save feedback:", e)
-
-        asyncio.run(async_task())
-
-    threading.Thread(target=analyze_and_save).start()
-
-    ai_msg = create_message(
-        chat_id=msg.chat_id,
-        sender="ai",
-        content=response.content
-    )
-
+    # 5. Retornar respuesta al frontend lo antes posible
     return ai_msg
+
+
+def process_background_tasks(msg: MessageCreate, human_msg_id: UUID, ai_response: str):
+    # Palabras: actualizar uso y crear nuevas
+    try:
+        update_word_usage(msg.user_id, msg.content)
+    except Exception as e:
+        print("⚠️ Word update failed:", e)
+
+    # Análisis lingüístico
+    try:
+        async def analyze_async():
+            try:
+                feedback = analyze_message(ai_response, msg.content)
+                feedback_data = json.loads(feedback) if isinstance(feedback, str) else feedback
+                save_analysis(human_msg_id, feedback_data)
+            except Exception as e:
+                print("⚠️ Analyzer error:", e)
+
+        asyncio.run(analyze_async())
+    except Exception as e:
+        print("⚠️ Could not launch async analysis:", e)
 
 
 def get_messages(chat_id: UUID) -> list[Message]:

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Form, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse
 from typing import List
 from uuid import UUID
@@ -31,9 +31,9 @@ def delete(message_id: UUID):
 
 
 @message_router.post("/transcribe-audio/")
-async def transcribe_audio(file: UploadFile = File(...), chat_id: UUID = Query(...)) -> dict:
+async def transcribe_audio(file: UploadFile = File(...), chat_id: UUID = Query(...), user_id: UUID = Form(...) ) -> dict:
     transcription = await transcribe_audio_openai(file)
-    msg = MessageCreate(chat_id=chat_id, sender="human", content=transcription)
+    msg = MessageCreate(chat_id=chat_id, sender="human", content=transcription, user_id=user_id)
     response = handle_human_message(msg)
 
     if not response:

@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-chat_agent = ChatOpenAI(model="gpt-3.5-turbo-0125", temperature=0.5)
+chat_agent = ChatOpenAI(model="gpt-3.5-turbo-0125")
 
 def generate_system_message(role: str, context: str) -> str:
     return f"""
