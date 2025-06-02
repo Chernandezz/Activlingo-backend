@@ -3,7 +3,7 @@ from fastapi.responses import StreamingResponse
 from typing import List
 from uuid import UUID
 from io import BytesIO
-from schemas.message import Message, MessageCreate
+from schemas.message import Message, MessageCreate, MessageResponse
 from services.message_service import create_message, get_messages, delete_message, handle_human_message
 from ai.transcriber_agent import transcribe_audio_openai
 from ai.synthesizer_agent import synthesize_speech
@@ -15,7 +15,7 @@ message_router = APIRouter()
 def list_messages(chat_id: UUID = Query(...)):
     return get_messages(chat_id)
 
-@message_router.post("/", response_model=Message)
+@message_router.post("/", response_model=MessageResponse)
 def create(msg: MessageCreate):
     created = handle_human_message(msg)
     if not created:

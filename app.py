@@ -5,6 +5,7 @@ from routes.analysis import analysis_router
 from fastapi.middleware.cors import CORSMiddleware
 from routes.user_dictionary import user_dictionary_router
 from routes.auth import auth_router
+from routes.tasks import tasks_router
 
 app = FastAPI()
 
@@ -19,6 +20,7 @@ app.add_middleware(
 
 app.include_router(chat_router, prefix="/chats", tags=["chats"])
 app.include_router(message_router, prefix="/messages", tags=["messages"])
+app.include_router(tasks_router, prefix="/tasks", tags=["tasks"])
 app.include_router(analysis_router, prefix="/analysis", tags=["analysis"])
 app.include_router(user_dictionary_router, prefix="/dictionary", tags=["dictionary"])
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
