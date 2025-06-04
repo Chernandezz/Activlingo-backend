@@ -9,7 +9,7 @@ from ai.task_checker_agent import check_tasks_completion
 from config.supabase_client import supabase
 from schemas.message import Message, MessageCreate
 from postgrest.exceptions import APIError
-from ai.chat_agent import get_ai_response
+from ai.chat_agent import generate_system_message, get_ai_response
 from services.analysis_service import save_analysis
 from services.tasks_service import get_tasks_for_chat, mark_tasks_completed_bulk
 from services.user_dictionary_service import update_word_usage
@@ -36,7 +36,11 @@ def handle_human_message(msg: MessageCreate) -> dict:
 
     # 2. Obtener historial y respuesta IA
     history = get_messages(msg.chat_id)
+
+    # No generes nada, solo prepárate a enviarlo como está
     lc_messages = [{"role": m.sender, "content": m.content} for m in history if m.sender in {"human", "ai", "system"}]
+
+
 
     response = get_ai_response(lc_messages)
 

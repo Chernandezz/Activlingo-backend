@@ -4,7 +4,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-chat_agent = ChatOpenAI(model="gpt-3.5-turbo-0125")
 
 def generate_system_message(role: str, context: str) -> str:
     return f"""
@@ -34,4 +33,5 @@ Start the conversation now — sound warm, natural, and human.
 
 
 def get_ai_response(messages):
-    return chat_agent.invoke(messages)
+    agent = ChatOpenAI(model="gpt-3.5-turbo-0125")
+    return agent.invoke(messages)

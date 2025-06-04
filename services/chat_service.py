@@ -23,6 +23,7 @@ def create_chat(user_id: UUID, chat_data: ChatCreate) -> dict | None:
             system_msg = generate_system_message(chat["role"], chat["context"])
             create_message(chat_id=UUID(chat["id"]), sender="system", content=system_msg)
             bot_response = get_ai_response([SystemMessage(content=system_msg)])
+            
             create_message(chat_id=UUID(chat["id"]), sender="ai", content=bot_response.content)
             chat["initial_message"] = bot_response.content
 

@@ -11,9 +11,11 @@ from pydantic import BaseModel
 
 message_router = APIRouter()
 
+
 @message_router.get("/", response_model=List[Message])
 def list_messages(chat_id: UUID = Query(...)):
     return get_messages(chat_id)
+
 
 @message_router.post("/", response_model=MessageResponse)
 def create(msg: MessageCreate):
@@ -21,6 +23,7 @@ def create(msg: MessageCreate):
     if not created:
         raise HTTPException(status_code=500, detail="Error creating message")
     return created
+
 
 @message_router.delete("/{message_id}")
 def delete(message_id: UUID):
@@ -31,9 +34,27 @@ def delete(message_id: UUID):
 
 
 @message_router.post("/transcribe-audio/")
-async def transcribe_audio(file: UploadFile = File(...), chat_id: UUID = Query(...), user_id: UUID = Form(...) ) -> dict:
+async def transcribe_audio(
+    file: UploadFile = File(...),
+    chat_id: UUID = Query(...),
+    user_id: UUID = Form(...)
+) -> dict:
+    # Primero, obtenemos la transcripción con OpenAI
     transcription = await transcribe_audio_openai(file)
-    msg = MessageCreate(chat_id=chat_id, sender="human", content=transcription, user_id=user_id)
+
+    # Creamos el objeto MessageCreate para enviarlo al servicio
+    msg = MessageCreate(
+        chat_id=chat_id,
+        sender="human",
+        content=transcription,
+        user_id=user_id
+    )
+
+    # handle_human_message debe devolver un dict con al menos:
+    # {
+    #   "message": <MessageResponse>,
+    #   "completed_tasks": [<UUID>, <UUID>, ...]
+    # }
     response = handle_human_message(msg)
 
     if not response:
@@ -41,11 +62,14 @@ async def transcribe_audio(file: UploadFile = File(...), chat_id: UUID = Query(.
 
     return {
         "user_text": transcription,
-        "ai_text": response.content
+        "ai_text": response["message"].content,
+        "completed_tasks": response.get("completed_tasks", [])
     }
+
 
 class SpeakRequest(BaseModel):
     text: str
+
 
 @message_router.post("/speak")
 def speak_text(body: SpeakRequest):
