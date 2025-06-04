@@ -1,226 +1,253 @@
-from uuid import UUID
+from typing import List, Dict, Optional
 from datetime import datetime, timedelta
-from typing import List
-from ai.dictionary_agent import get_definitions_from_gpt
+from uuid import UUID
+import asyncio
+
 from config.supabase_client import supabase
-from schemas.user_dictionary import UserDictionaryEntry, UserDictionaryCreate
+from services.wordsapi_service import fetch_definitions_from_wordsapi
+from ai.dictionary_agent import get_definitions_from_gpt
+from schemas.user_dictionary import UserDictionaryCreate, UserDictionaryEntry
+
+CACHE_TTL_DAYS = 300
+PROMOTION_THRESHOLD = 3  # Número de usos para promover de pasiva a activa
 
 
-# En user_service/dictionary.py
-
-COMMON_WORDS = {
-    'the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'I', 
-    'it', 'for', 'not', 'on', 'with', 'he', 'as', 'you', 'do', 'at',
-    'this', 'but', 'his', 'by', 'from', 'they', 'we', 'say', 'her', 'she',
-    'or', 'an', 'will', 'my', 'one', 'all', 'would', 'there', 'their', 'what',
-    'so', 'up', 'out', 'if', 'about', 'who', 'get', 'which', 'go', 'me',
-    'when', 'make', 'can', 'like', 'time', 'no', 'just', 'him', 'know', 'take',
-    'people', 'into', 'year', 'your', 'good', 'some', 'could', 'them', 'see',
-    'other', 'than', 'then', 'now', 'look', 'only', 'come', 'its', 'over',
-    'think', 'also', 'back', 'after', 'use', 'two', 'how', 'our', 'work',
-    'first', 'well', 'way', 'even', 'new', 'want', 'because', 'any', 'these',
-    'give', 'day', 'most', 'us', 'is', 'are', 'was', 'were'
-}
-import re
-from typing import Set
-
-def extract_relevant_words(text: str) -> Set[str]:
-    # Eliminar puntuación y convertir a minúsculas
-    words = re.findall(r"\b[\w'-]+\b", text.lower())
-    # Filtrar palabras comunes y muy cortas
-    return {
-        word for word in words 
-        if word not in COMMON_WORDS 
-        and len(word) > 2 
-        and not word.isnumeric()
-    }
-
-# En user_service/dictionary.py
-
-def update_word_usage(user_id: UUID, message: str) -> None:
-    # Extraer palabras relevantes del mensaje
-    words = extract_relevant_words(message)
-    if not words:
-        return
-    
-    # Obtener todas las palabras del usuario que coincidan
-    response = supabase.table("user_dictionary") \
-        .select("id, word") \
-        .eq("user_id", str(user_id)) \
-        .in_("word", list(words)) \
-        .execute()
-    
-    existing_words = {entry["word"].lower(): entry["id"] for entry in response.data}
-    
-    # Actualizar contador para palabras existentes
-    for word, word_id in existing_words.items():
-        log_word_usage(user_id, word_id)
-        check_and_promote_word(user_id, word_id)
-    
-    # Identificar palabras nuevas que no están en el diccionario del usuario
-    new_words = [w for w in words if w not in existing_words]
-    
-    # Agregar palabras nuevas automáticamente con definición básica
-    for word in new_words:
-        try:
-            # Buscar en caché primero
-            cached_defs = search_word_in_cache(word)
-            if not cached_defs:
-                cached_defs = fetch_and_cache_definitions(word)
-            
-            if cached_defs:
-                # Tomar la primera definición como valor por defecto
-                first_def = cached_defs[0]
-                new_entry = UserDictionaryCreate(
-                    word=word,
-                    meaning=first_def.get("definition", f"Definition of {word}"),
-                    part_of_speech=first_def.get("part_of_speech", "noun"),
-                    example=first_def.get("example", ""),
-                    source="auto-added"
-                )
-                added_word = add_word(user_id, new_entry)
-                if added_word:
-                    log_word_usage(user_id, added_word.id)
-        except Exception as e:
-            print(f"⚠️ Could not auto-add word {word}: {str(e)}")
+def normalize_term(term: str) -> str:
+    return term.strip().lower()
 
 
-def add_word(user_id: UUID, entry: UserDictionaryCreate) -> UserDictionaryEntry:
-    # Verificar si ya existe esa palabra con el mismo significado
+# -------------------------
+# GUARDAR PALABRA NUEVA
+# -------------------------
+async def add_word(user_id: UUID, entry: UserDictionaryCreate) -> UserDictionaryEntry:
+    word = entry.word.strip().lower()
+
+    # Buscar definiciones
+    definitions = await fetch_definitions(word)
+    if not definitions:
+        raise Exception(f"No definitions found for word: {word}")
+
+    first = definitions[0]
+
+    # Verificar duplicado exacto
     existing = supabase.table("user_dictionary") \
         .select("id") \
         .eq("user_id", str(user_id)) \
-        .eq("word", entry.word.strip()) \
-        .eq("meaning", entry.meaning.strip()) \
+        .eq("word", word) \
+        .eq("meaning", first["meaning"]) \
         .execute()
 
     if existing.data:
-        raise Exception("Ya existe esta palabra con el mismo significado")
+        raise Exception("Duplicate word with same meaning")
 
-    data = entry.model_dump()
-    data["user_id"] = str(user_id)
+    payload = {
+        "user_id": str(user_id),
+        "word": word,
+        "meaning": first["meaning"],
+        "part_of_speech": first.get("part_of_speech", "unknown"),
+        "example": first.get("example", ""),
+        "source": first.get("source", "unknown"),
+        "status": "passive",
+        "usage_count": 0,
+        "usage_context": first.get("usage_context", "general"),
+        "is_idiomatic": first.get("is_idiomatic", False),
+    }
 
-    response = supabase.table("user_dictionary").insert(data).execute()
-    return UserDictionaryEntry(**response.data[0]) if response.data else None
+    response = supabase.table("user_dictionary").insert(payload).execute()
+
+    if not response.data:
+        raise Exception("Failed to insert word")
+
+    return UserDictionaryEntry(**response.data[0])
 
 
-# 📄 Listar todas las palabras
+# -------------------------
+# DEFINICIONES CON CACHÉ
+# -------------------------
+def fetch_definitions_from_cache(term: str) -> Optional[List[Dict]]:
+    res = supabase.table("dictionary_cache") \
+        .select("definitions, last_updated") \
+        .eq("word", term) \
+        .limit(1) \
+        .execute()
+
+    if not res.data:
+        return None
+
+    row = res.data[0]
+
+    fetched_at = datetime.fromisoformat(row["last_updated"])
+    if fetched_at >= datetime.utcnow() - timedelta(days=CACHE_TTL_DAYS):
+        print(f"✅ Using cached definitions for '{term}'")
+        return row["definitions"]
+
+    print(f"⚠️ Cache expired for '{term}'")
+    supabase.table("dictionary_cache").delete().eq("word", term).execute()
+    return None
+
+
+
+
+def upsert_definitions_to_cache(term: str, definitions: List[Dict]) -> None:
+    now_iso = datetime.utcnow().isoformat()
+    supabase.table("dictionary_cache").upsert({
+        "word": term,
+        "definitions": definitions,
+        "last_updated": now_iso
+    }, on_conflict="word").execute()
+
+
+async def fetch_definitions(term: str) -> List[Dict]:
+    term_norm = normalize_term(term)
+    cached = fetch_definitions_from_cache(term_norm)
+    if cached is not None:
+        return cached
+
+    try:
+        print(f"Fetching definitions for '{term_norm}' from WordsAPI...")
+        definitions = await fetch_definitions_from_wordsapi(term_norm)
+        print(f"Fetched {len(definitions)} definitions from WordsAPI for '{term_norm}'")
+    except Exception:
+        definitions = []
+
+    if not definitions:
+        definitions = get_definitions_from_gpt(term_norm)
+
+    upsert_definitions_to_cache(term_norm, definitions)
+    return definitions
+
+
+# -------------------------
+# SUGERENCIAS
+# -------------------------
+def suggest_similar_words(term: str, limit: int = 20) -> List[Dict]:
+    res = supabase.table("dictionary_cache") \
+        .select("word, type") \
+        .ilike("word", f"{term}%") \
+        .limit(limit) \
+        .execute()
+
+    return res.data or []
+
+
+# -------------------------
+# LISTAR PALABRAS DEL USUARIO
+# -------------------------
 def get_user_dictionary(user_id: UUID) -> List[UserDictionaryEntry]:
     response = supabase.table("user_dictionary") \
         .select("*") \
         .eq("user_id", str(user_id)) \
-        .order("created_at", desc=False) \
+        .order("created_at", desc=True) \
         .execute()
-    return [UserDictionaryEntry(**d) for d in response.data or []]
+
+    return [UserDictionaryEntry(**row) for row in response.data or []]
 
 
-# ❌ Eliminar palabra
+# -------------------------
+# FILTRAR POR STATUS
+# -------------------------
+def get_words_by_status(user_id: UUID, status: str) -> List[UserDictionaryEntry]:
+    res = supabase.table("user_dictionary") \
+        .select("*") \
+        .eq("user_id", str(user_id)) \
+        .eq("status", status) \
+        .order("last_used_at", desc=True) \
+        .execute()
+
+    return [UserDictionaryEntry(**row) for row in res.data or []]
+
+
+# -------------------------
+# ELIMINAR PALABRA
+# -------------------------
 def delete_word(word_id: UUID, user_id: UUID) -> bool:
-    response = supabase.table("user_dictionary") \
+    res = supabase.table("user_dictionary") \
         .delete() \
         .eq("id", str(word_id)) \
         .eq("user_id", str(user_id)) \
         .execute()
-    return bool(response.data)
+
+    return bool(res.data)
 
 
-# 🔎 Buscar en cache
-def search_word_in_cache(word: str) -> list[dict]:
-    response = supabase.table("dictionary_cache") \
-        .select("definitions") \
-        .eq("word", word.lower()) \
-        .execute()
-    return response.data[0]["definitions"] if response.data else []
-
-
-# 🔁 Buscar usando GPT y cachear
-
-
-def fetch_definitions_from_api(word: str) -> list[dict]:
-    definitions = get_definitions_from_gpt(word)
-    return definitions
-
-
-# 📥 Guardar múltiples definiciones
-def save_multiple_definitions(user_id: UUID, word: str, selected_defs: List[UserDictionaryCreate]) -> List[UserDictionaryEntry]:
-    entries = []
-    for definition in selected_defs:
-        payload = {
-            "user_id": str(user_id),
-            "word": word,
-            "meaning": definition.meaning,
-            "part_of_speech": definition.part_of_speech,
-            "example": definition.example,
-            "source": definition.source or "ChatGPT"
-        }
-        result = supabase.table("user_dictionary").insert(payload).execute()
-        if result.data:
-            entries.append(UserDictionaryEntry(**result.data[0]))
-    return entries
-
-
-# ✅ Filtrar palabras por estado
-def get_words_by_status(user_id: UUID, status: str) -> List[UserDictionaryEntry]:
-    response = supabase.table("user_dictionary") \
-        .select("*") \
-        .eq("user_id", str(user_id)) \
-        .eq("status", status) \
-        .order("created_at", desc=False) \
-        .execute()
-    return [UserDictionaryEntry(**d) for d in response.data or []]
-
-
-def fetch_and_cache_definitions(word: str):
-    cached = search_word_in_cache(word)
-    if cached:
-        return cached
-    
-    definitions = get_definitions_from_gpt(word)
-    supabase.table("dictionary_cache").insert({"word": word.lower(), "definitions": definitions}).execute()
-    return definitions
-
-
-# 🧠 Registrar uso de palabra
-def log_word_usage(user_id: UUID, word_id: UUID, context: str = "chat") -> None:
-    # Obtener uso actual
-    current_data = supabase.table("user_dictionary") \
+# -------------------------
+# REGISTRAR USO
+# -------------------------
+def log_word_usage(user_id: UUID, word_id: UUID, context: str = "general"):
+    now = datetime.utcnow().isoformat()
+    res = supabase.table("user_dictionary") \
         .select("usage_count") \
         .eq("user_id", str(user_id)) \
         .eq("id", str(word_id)) \
         .single() \
         .execute()
 
-    current_usage = current_data.data["usage_count"] if current_data.data else 0
+    if not res.data:
+        return
 
-    # Actualizar valores
-    supabase.table("user_word_logs").insert({
-        "user_id": str(user_id),
-        "word_id": str(word_id),
-        "context": context
-    }).execute()
+    usage_count = res.data["usage_count"] + 1
 
     supabase.table("user_dictionary") \
         .update({
-            "usage_count": current_usage + 1,
-            "last_used_at": datetime.utcnow().isoformat(),
-            "usage_context": context
+            "usage_count": usage_count,
+            "last_used_at": now,
         }) \
-        .eq("user_id", str(user_id)) \
         .eq("id", str(word_id)) \
         .execute()
 
 
-# 📈 Promover palabra si se ha usado suficiente
-def check_and_promote_word(user_id: UUID, word_id: UUID, threshold: int = 20):
-    word = supabase.table("user_dictionary") \
-        .select("status, usage_count") \
-        .eq("id", str(word_id)) \
+# -------------------------
+# PROMOCIONAR SI ES NECESARIO
+# -------------------------
+def check_and_promote_word(user_id: UUID, word_id: UUID):
+    res = supabase.table("user_dictionary") \
+        .select("usage_count", "status") \
         .eq("user_id", str(user_id)) \
-        .eq("status", "passive") \
-        .execute().data[0]
-    
-    if word and word["usage_count"] >= threshold:
+        .eq("id", str(word_id)) \
+        .single() \
+        .execute()
+
+    if not res.data:
+        return
+
+    usage_count = res.data["usage_count"]
+    status = res.data["status"]
+
+    if status == "passive" and usage_count >= PROMOTION_THRESHOLD:
         supabase.table("user_dictionary") \
             .update({"status": "active"}) \
             .eq("id", str(word_id)) \
+            .execute()
+
+
+def update_word_usage(user_id: UUID, text: str):
+    """
+    Extrae palabras del texto, actualiza usage_count y last_used_at de las que ya están en el diccionario del usuario.
+    """
+    words_in_text = set(w.lower().strip(".,!?") for w in text.split())
+
+    res = supabase.table("user_dictionary") \
+        .select("id, word, usage_count") \
+        .eq("user_id", str(user_id)) \
+        .execute()
+
+    if not res.data:
+        return
+
+    updates = []
+    for row in res.data:
+        if row["word"].lower() in words_in_text:
+            updates.append({
+                "id": row["id"],
+                "usage_count": row["usage_count"] + 1,
+                "last_used_at": datetime.utcnow().isoformat()
+            })
+
+    for u in updates:
+        supabase.table("user_dictionary") \
+            .update({
+                "usage_count": u["usage_count"],
+                "last_used_at": u["last_used_at"]
+            }) \
+            .eq("id", str(u["id"])) \
             .execute()
