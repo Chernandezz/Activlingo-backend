@@ -1,3 +1,7 @@
+# ---------------------------------------------
+# services/message_service.py
+# ---------------------------------------------
+
 import json
 import threading
 import asyncio
@@ -9,7 +13,7 @@ from ai.task_checker_agent import check_tasks_completion
 from config.supabase_client import supabase
 from schemas.message import Message, MessageCreate
 from postgrest.exceptions import APIError
-from ai.chat_agent import generate_system_message, get_ai_response
+from ai.chat_agent import get_ai_response
 from services.analysis_service import save_analysis
 from services.tasks_service import get_tasks_for_chat, mark_tasks_completed_bulk
 from services.user_dictionary_service import update_word_usage
@@ -29,25 +33,36 @@ def create_message(chat_id: UUID, sender: str, content: str) -> Message | None:
 
 
 def handle_human_message(msg: MessageCreate) -> dict:
-    # 1. Guardar mensaje humano
+    # 1) Guardar mensaje humano
     human_msg = create_message(msg.chat_id, "human", msg.content)
     if not human_msg:
         return {"error": "Could not save message"}
 
-    # 2. Obtener historial y respuesta IA
+    # 2) Obtener todo el historial (incluye system, human, ai)
     history = get_messages(msg.chat_id)
 
-    # No generes nada, solo prepárate a enviarlo como está
-    lc_messages = [{"role": m.sender, "content": m.content} for m in history if m.sender in {"human", "ai", "system"}]
+    # 3) Asegurar que exista un mensaje 'system' en la base de datos
+    #    En create_chat ya se insertó un 'system' inicial.
+    #    Aquí no lo re-creamos, simplemente lo usamos si está.
+    #    Si por algún motivo no hay 'system', se asume que no se perdió
+    #    porque create_chat lo agrega siempre al crear el chat.
 
+    # 4) Construir lista de mensajes para la IA: system primero, luego human/ai
+    lc_messages = []
+    for m in history:
+        if m.sender == "system":
+            lc_messages.append({"role": "system", "content": m.content})
+    for m in history:
+        if m.sender in {"human", "ai"}:
+            lc_messages.append({"role": m.sender, "content": m.content})
 
-
+    # 5) Obtener respuesta de la IA
     response = get_ai_response(lc_messages)
 
-    # 3. Guardar respuesta de IA
+    # 6) Guardar respuesta de IA
     ai_msg = create_message(msg.chat_id, "ai", response.content)
 
-    # ✅ 4. Verificar tareas (1 solo prompt para todas)
+    # 7) Verificar y marcar tareas completadas
     completed_ids = []
     try:
         tasks = get_tasks_for_chat(msg.chat_id)
@@ -58,13 +73,13 @@ def handle_human_message(msg: MessageCreate) -> dict:
     except Exception as e:
         print("⚠️ Task checking failed:", e)
 
-    # 🔁 5. Procesos secundarios en background
+    # 8) Lanzar procesos secundarios en background
     def bg():
         process_background_tasks(msg, human_msg.id, response.content)
 
     threading.Thread(target=bg).start()
 
-    # ✅ 6. Retornar IA + tareas completadas
+    # 9) Devolver la respuesta de la IA, el mensaje humano y las tareas completadas
     return {
         "message": ai_msg,
         "human_message": human_msg,
@@ -72,16 +87,14 @@ def handle_human_message(msg: MessageCreate) -> dict:
     }
 
 
-
-
 def process_background_tasks(msg: MessageCreate, human_msg_id: UUID, ai_response: str):
-    # ✅ 1. Palabras: uso + nuevas
+    # 1) Actualizar uso de palabras en el diccionario
     try:
         update_word_usage(msg.user_id, msg.content)
     except Exception as e:
         print("⚠️ Word update failed:", e)
 
-    # ✅ 2. Análisis lingüístico (correcciones, sugerencias, etc.)
+    # 2) Análisis lingüístico en segundo plano
     try:
         async def analyze_async():
             try:
@@ -94,7 +107,6 @@ def process_background_tasks(msg: MessageCreate, human_msg_id: UUID, ai_response
         asyncio.run(analyze_async())
     except Exception as e:
         print("⚠️ Could not launch async analysis:", e)
-
 
 
 def get_messages(chat_id: UUID) -> list[Message]:

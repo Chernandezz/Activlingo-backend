@@ -39,10 +39,10 @@ async def transcribe_audio(
     chat_id: UUID = Query(...),
     user_id: UUID = Form(...)
 ) -> dict:
-    # Primero, obtenemos la transcripción con OpenAI
+    # 1) Obtener la transcripción del archivo de audio
     transcription = await transcribe_audio_openai(file)
 
-    # Creamos el objeto MessageCreate para enviarlo al servicio
+    # 2) Crear el mensaje humano
     msg = MessageCreate(
         chat_id=chat_id,
         sender="human",
@@ -50,16 +50,13 @@ async def transcribe_audio(
         user_id=user_id
     )
 
-    # handle_human_message debe devolver un dict con al menos:
-    # {
-    #   "message": <MessageResponse>,
-    #   "completed_tasks": [<UUID>, <UUID>, ...]
-    # }
+    # 3) Procesar el mensaje humano, devolviendo IA + tareas completadas
     response = handle_human_message(msg)
 
     if not response:
         raise HTTPException(status_code=500, detail="AI failed to respond")
 
+    # 4) Retornar transcripción, respuesta IA y tareas completadas
     return {
         "user_text": transcription,
         "ai_text": response["message"].content,
