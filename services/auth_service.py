@@ -15,14 +15,12 @@ def signup_user(email: str, password: str) -> AuthResponse | dict:
     try:
         response = supabase.auth.sign_up({"email": email, "password": password})
 
-        # .session y .user son objetos, no diccionarios
         return AuthResponse(
             session=response.session.model_dump() if response.session else None,
             user=response.user.model_dump() if response.user else None
         )
     except Exception as e:
         return {"error": str(e)}
-
 
 
 def login_user(email: str, password: str):

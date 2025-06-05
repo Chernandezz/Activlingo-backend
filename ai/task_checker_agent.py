@@ -3,7 +3,7 @@ from uuid import UUID
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
-task_checker = ChatOpenAI(model="gpt-4o", temperature=0)
+task_checker = ChatOpenAI(model="gpt-4o")
 
 def check_tasks_completion(message: str, tasks: list[dict]) -> list[UUID]:
     """
