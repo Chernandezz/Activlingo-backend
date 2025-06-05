@@ -1,6 +1,4 @@
-# routers/user_dictionary_router.py
-
-from fastapi import APIRouter, HTTPException, Query, Body
+from fastapi import APIRouter, HTTPException, Query, Body, Depends
 from uuid import UUID
 from typing import List, Dict
 
@@ -15,11 +13,16 @@ from services.user_dictionary_service import (
     suggest_similar_words
 )
 from schemas.user_dictionary import UserDictionaryCreate, UserDictionaryEntry
+from dependencies.auth import get_current_user
 
 user_dictionary_router = APIRouter()
 
+
 @user_dictionary_router.post("/", response_model=UserDictionaryEntry)
-async def save_word(user_id: UUID = Query(...), entry: UserDictionaryCreate = Body(...)):
+async def save_word(
+    entry: UserDictionaryCreate = Body(...),
+    user_id: UUID = Depends(get_current_user)
+):
     try:
         return await add_word(user_id, entry)
     except Exception as e:
@@ -27,15 +30,24 @@ async def save_word(user_id: UUID = Query(...), entry: UserDictionaryCreate = Bo
 
 
 @user_dictionary_router.get("/", response_model=List[UserDictionaryEntry])
-def list_words(user_id: UUID = Query(...), skip: int = 0, limit: int = 50):
+def list_words(
+    skip: int = 0,
+    limit: int = 50,
+    user_id: UUID = Depends(get_current_user)
+):
     all_words = get_user_dictionary(user_id)
     return all_words[skip: skip + limit]
 
+
 @user_dictionary_router.delete("/{word_id}")
-def remove_word(word_id: UUID, user_id: UUID = Query(...)):
+def remove_word(
+    word_id: UUID,
+    user_id: UUID = Depends(get_current_user)
+):
     if not delete_word(word_id, user_id):
         raise HTTPException(status_code=404, detail="Word not found")
     return {"success": True}
+
 
 @user_dictionary_router.get("/search", response_model=List[Dict])
 async def search_definitions(word: str = Query(..., min_length=1)):
@@ -46,21 +58,29 @@ async def search_definitions(word: str = Query(..., min_length=1)):
 
 
 @user_dictionary_router.get("/by-status", response_model=List[UserDictionaryEntry])
-def get_by_status(user_id: UUID = Query(...), status: str = Query("active")):
+def get_by_status(
+    status: str = Query("active"),
+    user_id: UUID = Depends(get_current_user)
+):
     return get_words_by_status(user_id, status)
+
 
 @user_dictionary_router.post("/log-usage")
 def log_usage_and_check_promotion(
-    user_id: UUID = Query(...),
     word_id: UUID = Query(...),
-    context: str = Query("general")
+    context: str = Query("general"),
+    user_id: UUID = Depends(get_current_user)
 ):
     log_word_usage(user_id, word_id, context)
     check_and_promote_word(user_id, word_id)
     return {"success": True}
 
+
 @user_dictionary_router.get("/suggestions", response_model=List[Dict])
-def get_word_suggestions(prefix: str = Query(..., min_length=1), limit: int = 20):
+def get_word_suggestions(
+    prefix: str = Query(..., min_length=1),
+    limit: int = 20
+):
     try:
         return suggest_similar_words(prefix, limit=limit)
     except Exception as e:

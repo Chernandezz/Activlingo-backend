@@ -20,7 +20,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(chat_router, prefix="/chats", tags=["chats"], dependencies=[Depends(check_access)] )
+app.include_router(chat_router, prefix="/chats", tags=["chats"])
 app.include_router(user_router, prefix="/user", tags=["user"])
 app.include_router(message_router, prefix="/messages", tags=["messages"])
 app.include_router(tasks_router, prefix="/tasks", tags=["tasks"])
