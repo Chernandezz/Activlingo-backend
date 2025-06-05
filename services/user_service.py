@@ -32,3 +32,6 @@ def is_trial_active(user_id: str) -> dict:
 
     except Exception as e:
         return {"trial_active": False, "error": str(e)}
+
+def activate_subscription(user_id: str):
+    supabase.table("users_profile").update({"is_subscribed": True}).eq("id", user_id).execute()
