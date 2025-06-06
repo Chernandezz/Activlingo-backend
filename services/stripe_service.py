@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 PRICE_ID = os.getenv("STRIPE_PRICE_ID")
+FRONTEND_URL = os.getenv("FRONTEND_URL") 
 
 def create_checkout_session(user_id: str):
     try:
@@ -17,8 +18,8 @@ def create_checkout_session(user_id: str):
             }],
             customer_email=None,
             metadata={"user_id": user_id},
-            success_url="https://tuapp.com/success?session_id={CHECKOUT_SESSION_ID}",
-            cancel_url="https://tuapp.com/cancel",
+            success_url=f"{FRONTEND_URL}/success?session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{FRONTEND_URL}/cancel",
         )
         return session.url
     except Exception as e:

@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta, timezone
+from uuid import UUID
 from supabase import create_client, Client
 import os
 from dotenv import load_dotenv
-
 
 load_dotenv()
 
@@ -11,37 +11,43 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-
-
-def is_trial_active(user_id: str) -> dict:
+def is_trial_active(user_id: UUID) -> dict:
     try:
         result = (
             supabase.table("users_profile")
             .select("*")
-            .eq("id", user_id)
-            .single()
+            .eq("id", str(user_id))
             .execute()
         )
-        profile = result.data
 
-        if not profile:
-            # Si no existe el perfil, devolvemos un “trial cerrado”
+        if not result.data or len(result.data) == 0:
             return {
                 "trial_end": None,
                 "trial_active": False,
                 "is_subscribed": False,
+                "onboarding_seen": False,
             }
 
-        # parseamos trial_start (supabase lo da como ISO Zulu)
-        trial_start = datetime.fromisoformat(profile["trial_start"].replace("Z", "+00:00"))
+        profile = result.data[0]  # ✅ importante: accedemos al primer elemento
+
+        trial_start_raw = profile.get("trial_start")
+        if not trial_start_raw:
+            return {
+                "trial_end": None,
+                "trial_active": False,
+                "is_subscribed": profile.get("is_subscribed", False),
+                "onboarding_seen": profile.get("onboarding_seen", False),
+            }
+
+        trial_start = datetime.fromisoformat(trial_start_raw.replace("Z", "+00:00"))
         now = datetime.now(timezone.utc)
-        # calculamos si ya expiró los 3 días
         expired = now > trial_start + timedelta(days=3)
 
         return {
             "trial_end": (trial_start + timedelta(days=3)).isoformat(),
             "trial_active": not expired,
             "is_subscribed": profile.get("is_subscribed", False),
+            "onboarding_seen": profile.get("onboarding_seen", False),
         }
 
     except Exception as e:
@@ -49,7 +55,16 @@ def is_trial_active(user_id: str) -> dict:
             "trial_end": None,
             "trial_active": False,
             "is_subscribed": False,
+            "onboarding_seen": False,
             "error": str(e),
         }
+
 def activate_subscription(user_id: str):
     supabase.table("users_profile").update({"is_subscribed": True}).eq("id", user_id).execute()
+
+def mark_onboarding_seen(user_id: str):
+    try:
+        supabase.table("users_profile").update({"onboarding_seen": True}).eq("id", user_id).execute()
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
