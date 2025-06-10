@@ -1,29 +1,43 @@
-from fastapi import APIRouter, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Form, HTTPException, Query, UploadFile, File, Depends
 from fastapi.responses import StreamingResponse
 from typing import List
 from uuid import UUID
 from io import BytesIO
-from schemas.message import Message, MessageCreate
+from schemas.message import Message, MessageCreate, MessageResponse
 from services.message_service import create_message, get_messages, delete_message, handle_human_message
 from ai.transcriber_agent import transcribe_audio_openai
 from ai.synthesizer_agent import synthesize_speech
 from pydantic import BaseModel
+from dependencies.auth import get_current_user
 
 message_router = APIRouter()
 
+
 @message_router.get("/", response_model=List[Message])
-def list_messages(chat_id: UUID = Query(...)):
+def list_messages(
+    chat_id: UUID = Query(...),
+    user_id: UUID = Depends(get_current_user)
+):
     return get_messages(chat_id)
 
-@message_router.post("/", response_model=Message)
-def create(msg: MessageCreate):
+
+@message_router.post("/", response_model=MessageResponse)
+def create(
+    msg: MessageCreate,
+    user_id: UUID = Depends(get_current_user)
+):
+    msg.user_id = user_id
     created = handle_human_message(msg)
     if not created:
         raise HTTPException(status_code=500, detail="Error creating message")
     return created
 
+
 @message_router.delete("/{message_id}")
-def delete(message_id: UUID):
+def delete(
+    message_id: UUID,
+    user_id: UUID = Depends(get_current_user)
+):
     success = delete_message(message_id)
     if not success:
         raise HTTPException(status_code=404, detail="Message not found or already deleted")
@@ -31,24 +45,40 @@ def delete(message_id: UUID):
 
 
 @message_router.post("/transcribe-audio/")
-async def transcribe_audio(file: UploadFile = File(...), chat_id: UUID = Query(...)) -> dict:
+async def transcribe_audio(
+    file: UploadFile = File(...),
+    chat_id: UUID = Query(...),
+    user_id: UUID = Depends(get_current_user)
+) -> dict:
     transcription = await transcribe_audio_openai(file)
-    msg = MessageCreate(chat_id=chat_id, sender="human", content=transcription)
-    response = handle_human_message(msg)
 
+    msg = MessageCreate(
+        chat_id=chat_id,
+        sender="human",
+        content=transcription,
+        user_id=user_id
+    )
+
+    response = handle_human_message(msg)
     if not response:
         raise HTTPException(status_code=500, detail="AI failed to respond")
 
     return {
         "user_text": transcription,
-        "ai_text": response.content
+        "ai_text": response["message"].content,
+        "completed_tasks": response.get("completed_tasks", [])
     }
+
 
 class SpeakRequest(BaseModel):
     text: str
 
+
 @message_router.post("/speak")
-def speak_text(body: SpeakRequest):
+def speak_text(
+    body: SpeakRequest,
+    user_id: UUID = Depends(get_current_user)
+):
     audio_bytes = synthesize_speech(body.text)
     return StreamingResponse(
         BytesIO(audio_bytes),

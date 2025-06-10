@@ -14,9 +14,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 def signup_user(email: str, password: str) -> AuthResponse | dict:
     try:
         response = supabase.auth.sign_up({"email": email, "password": password})
-        print("Signup response:", response)
 
-        # .session y .user son objetos, no diccionarios
         return AuthResponse(
             session=response.session.model_dump() if response.session else None,
             user=response.user.model_dump() if response.user else None
@@ -25,11 +23,9 @@ def signup_user(email: str, password: str) -> AuthResponse | dict:
         return {"error": str(e)}
 
 
-
 def login_user(email: str, password: str):
     try:
         result = supabase.auth.sign_in_with_password({"email": email, "password": password})
-        print("Login result:", result)
 
         return AuthResponse(
             session=result.session.model_dump() if result.session else None,
