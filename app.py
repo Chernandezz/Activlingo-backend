@@ -36,3 +36,7 @@ app.include_router(webhook_router, prefix="/stripe", tags=["stripe-webhook"])
 @app.get("/")
 def read_root():
     return {"Hello": "World"}
+
+@app.get("/ping")
+def ping():
+    return {"message": "pong"}
