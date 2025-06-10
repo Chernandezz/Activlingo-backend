@@ -47,7 +47,17 @@ jobs:
 
       - name: Copy backend to VPS
         run: |
-          rsync -avz --delete . ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/var/www/activlingo/backend/
+          rsync -avz --delete --exclude 'venv/' . ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/var/www/activlingo/backend/
+
+      - name: Reinstall backend dependencies and restart service
+        run: |
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+            cd /var/www/activlingo/backend
+            source venv/bin/activate || python3 -m venv venv && source venv/bin/activate
+            pip install --upgrade pip
+            pip install -r requirements.txt
+            sudo systemctl restart activlingo-backend
+          EOF
 
       - name: Restart backend service on VPS
         run: |
