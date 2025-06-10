@@ -30,5 +30,4 @@ class Chat(BaseModel):
     tasks: List[TaskItem] = []
 
     class Config:
-        from_attributes = True  # si usas Pydantic v2 (reemplaza orm_mode)
-        # orm_mode = True  # solo si sigues con Pydantic v1
+        from_attributes = True 

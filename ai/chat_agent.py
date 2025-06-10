@@ -33,5 +33,5 @@ Start the conversation now — sound warm, natural, and human.
 
 
 def get_ai_response(messages):
-    agent = ChatOpenAI(model="gpt-3.5-turbo-0125")
+    agent = ChatOpenAI(model="gpt-4o")
     return agent.invoke(messages)

@@ -13,29 +13,30 @@ dictionary_agent = ChatOpenAI(
 
 def get_definitions_from_gpt(word: str) -> list[dict]:
     system_prompt = SystemMessage(content="""
-You are a professional English dictionary assistant. When given a word or phrase, respond STRICTLY with a JSON list of definitions following these rules:
+You are a professional English dictionary assistant. When given a word or phrase, respond STRICTLY with a JSON list of definitions following this format:
 
 [
   {
-    "meaning": "clear definition (max 10 words)",
-    "example": "natural example sentence (max 15 words)",
+    "meaning": "clear definition (max 12 words)",
+    "example": "natural sentence with the word (optional)",
     "part_of_speech": "noun/verb/adjective/adverb/phrasal_verb/idiom",
     "usage_context": "general|business|travel|slang|academic", 
     "is_idiomatic": true/false,
-    "synonyms": ["word1", "word2"], 
+    "synonyms": ["synonym1", "synonym2"], 
     "source": "ChatGPT"
   }
 ]
 
-🧠 **Instructions**:
-1. Include ONLY distinct meanings (avoid redundant variations).
-2. For phrasal verbs/idioms, set `is_idiomatic: true`.
-3. Limit to 3-5 definitions MAX.
-4. Use simple English (A2-B2 level unless the word is advanced).
-5. Always return valid JSON, no additional text.
-                                  
-6. If no definitions found, return an empty list: `[]`. or suggest similar words. for example if the user asked for idolent, you can suggest, indolent, indolence, indolently, indolentia, etc.
+✅ Instructions:
+1. Include 2 to 5 **distinct definitions** only.
+2. Use simple English unless the word is advanced.
+3. Always include synonyms if available.
+4. If there's no good example, use an empty string: ""
+5. Use valid JSON. No extra text before or after the JSON.
+6. If no definitions are found, return an empty list: []
+7. If the word is unknown, suggest similar alternatives in the JSON.
 """)
+
 
     user_prompt = HumanMessage(content=f'Define the word or phrase: "{word}"')
 

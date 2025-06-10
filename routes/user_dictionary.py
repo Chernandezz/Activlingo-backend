@@ -1,109 +1,87 @@
-from fastapi import APIRouter, HTTPException, Query, Body
+from fastapi import APIRouter, HTTPException, Query, Body, Depends
 from uuid import UUID
-from typing import List, Dict, Optional
-from datetime import datetime, timedelta
+from typing import List, Dict
 
-import supabase
-
-from schemas.user_dictionary import UserDictionaryCreate, UserDictionaryEntry
 from services.user_dictionary_service import (
     add_word,
-    fetch_and_cache_definitions,
+    fetch_definitions,
     get_user_dictionary,
     delete_word,
-    fetch_definitions_from_api,
-    save_multiple_definitions,
-    search_word_in_cache,
+    get_words_by_status,
     log_word_usage,
     check_and_promote_word,
-    get_words_by_status
+    suggest_similar_words
 )
+from schemas.user_dictionary import UserDictionaryCreate, UserDictionaryEntry
+from dependencies.auth import get_current_user
 
 user_dictionary_router = APIRouter()
 
 
-# ✅ Guardar una palabra individual
 @user_dictionary_router.post("/", response_model=UserDictionaryEntry)
-def save_word(user_id: UUID = Query(...), entry: UserDictionaryCreate = ...):
-    return add_word(user_id, entry)
+async def save_word(
+    entry: UserDictionaryCreate = Body(...),
+    user_id: UUID = Depends(get_current_user)
+):
+    try:
+        return await add_word(user_id, entry)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
-# ✅ Listar todas las palabras del usuario
 @user_dictionary_router.get("/", response_model=List[UserDictionaryEntry])
 def list_words(
-    user_id: UUID = Query(...),
     skip: int = 0,
-    limit: int = 50
+    limit: int = 50,
+    user_id: UUID = Depends(get_current_user)
 ):
-    return get_user_dictionary(user_id)[skip:skip + limit]
+    all_words = get_user_dictionary(user_id)
+    return all_words[skip: skip + limit]
 
 
-# ✅ Eliminar una palabra
 @user_dictionary_router.delete("/{word_id}")
-def remove_word(word_id: UUID, user_id: UUID = Query(...)):
-    success = delete_word(word_id, user_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Word not found or already deleted")
-    return {"success": True, "message": "Word deleted successfully"}
-
-
-@user_dictionary_router.get("/search", response_model=List[dict])
-def search_definitions(word: str = Query(..., min_length=1)):
-    cached = search_word_in_cache(word)
-    if cached:
-        return cached
-
-    return fetch_and_cache_definitions(word)
-
-
-
-# ✅ Agregar múltiples definiciones
-@user_dictionary_router.post("/add-multiple", response_model=List[UserDictionaryEntry])
-def add_selected_definitions(
-    user_id: UUID = Query(...),
-    definitions: List[UserDictionaryCreate] = Body(...)
+def remove_word(
+    word_id: UUID,
+    user_id: UUID = Depends(get_current_user)
 ):
-    if not definitions:
-        raise HTTPException(status_code=400, detail="No definitions provided")
+    if not delete_word(word_id, user_id):
+        raise HTTPException(status_code=404, detail="Word not found")
+    return {"success": True}
 
-    saved = []
-    for entry in definitions:
-        saved += save_multiple_definitions(user_id, entry.word, [entry])
 
-    return saved
+@user_dictionary_router.get("/search", response_model=List[Dict])
+async def search_definitions(word: str = Query(..., min_length=1)):
+    try:
+        return await fetch_definitions(word)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"WordsAPI error: {e}")
 
-@user_dictionary_router.get("/counts")
-def get_word_counts(user_id: UUID = Query(...)):
-    active = supabase.table("user_dictionary") \
-        .select("count", count="exact") \
-        .eq("user_id", str(user_id)) \
-        .eq("status", "active") \
-        .execute().count
-    
-    passive = supabase.table("user_dictionary") \
-        .select("count", count="exact") \
-        .eq("user_id", str(user_id)) \
-        .eq("status", "passive") \
-        .execute().count
-    
-    return {"active": active, "passive": passive}
 
-# ✅ Obtener palabras por estado (active/passive)
 @user_dictionary_router.get("/by-status", response_model=List[UserDictionaryEntry])
-def get_words_by_status_route(
-    user_id: UUID = Query(...),
-    status: str = Query("active")
+def get_by_status(
+    status: str = Query("active"),
+    user_id: UUID = Depends(get_current_user)
 ):
     return get_words_by_status(user_id, status)
 
 
-# ✅ Registrar uso de palabra y promover si aplica
 @user_dictionary_router.post("/log-usage")
 def log_usage_and_check_promotion(
-    user_id: UUID = Query(...),
     word_id: UUID = Query(...),
-    context: str = Query("chat")
+    context: str = Query("general"),
+    user_id: UUID = Depends(get_current_user)
 ):
     log_word_usage(user_id, word_id, context)
     check_and_promote_word(user_id, word_id)
-    return {"success": True, "message": "Usage logged and status checked"}
+    return {"success": True}
+
+
+@user_dictionary_router.get("/suggestions", response_model=List[Dict])
+def get_word_suggestions(
+    prefix: str = Query(..., min_length=1),
+    limit: int = 20
+):
+    try:
+        return suggest_similar_words(prefix, limit=limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
