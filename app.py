@@ -12,6 +12,7 @@ from routes.stripe import stripe_router
 from routes.stripe_webhook import router as webhook_router
 
 app = FastAPI()
+app = FastAPI(root_path="/api")
 
 
 app.add_middleware(

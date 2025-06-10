@@ -9,6 +9,7 @@ __pycache__/
 # Environment variables and config
 .env
 .env.*
+!.env.template
 
 # Virtual environments
 .venv/
