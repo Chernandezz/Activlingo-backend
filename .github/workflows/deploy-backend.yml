@@ -1,0 +1,68 @@
+name: Deploy Backend to VPS
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Copy .env template and inject secrets
+        run: |
+          cp .env.template .env
+          sed -i "s|SUPABASE_URL=.*|SUPABASE_URL=${{ secrets.SUPABASE_URL }}|" .env
+          sed -i "s|SUPABASE_KEY=.*|SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}|" .env
+          sed -i "s|OPENAI_API_KEY=.*|OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}|" .env
+          sed -i "s|ALLOWED_ORIGIN=.*|ALLOWED_ORIGIN=${{ secrets.ALLOWED_ORIGIN }}|" .env
+          sed -i "s|WORDSAPI_HOST=.*|WORDSAPI_HOST=${{ secrets.WORDSAPI_HOST }}|" .env
+          sed -i "s|WORDSAPI_KEY=.*|WORDSAPI_KEY=${{ secrets.WORDSAPI_KEY }}|" .env
+          sed -i "s|STRIPE_SECRET_KEY=.*|STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }}|" .env
+          sed -i "s|STRIPE_PRICE_ID=.*|STRIPE_PRICE_ID=${{ secrets.STRIPE_PRICE_ID }}|" .env
+          sed -i "s|STRIPE_WEBHOOK_SECRET=.*|STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET }}|" .env
+          sed -i "s|FRONTEND_URL=.*|FRONTEND_URL=${{ secrets.FRONTEND_URL }}|" .env
+
+      - name: Install dependencies (local, optional)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Disable host key checking (TEMPORAL)
+        run: |
+          echo -e "Host *\n\tStrictHostKeyChecking no\n" >> ~/.ssh/config
+
+      - name: Copy backend to VPS
+        run: |
+          rsync -avz --delete \
+            --exclude 'venv/' \
+            --exclude '.git/' \
+            --exclude '__pycache__/' \
+            --exclude '*.pyc' \
+            . ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/var/www/activlingo/backend/
+
+      - name: Reinstall backend dependencies and restart service
+        run: |
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'EOF'
+            cd /var/www/activlingo/backend
+            if [ ! -d "venv" ]; then
+              python3 -m venv venv
+            fi
+            source venv/bin/activate
+            pip install --upgrade pip
+            pip install -r requirements.txt
+            sudo systemctl restart activlingo-backend
+          EOF

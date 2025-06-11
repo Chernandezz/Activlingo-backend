@@ -1,0 +1,32 @@
+name: Backend CI Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-deploy-connection:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Print ENV Vars
+        run: |
+          echo "🔑 SUPABASE_URL=${{ secrets.SUPABASE_URL }}"
+          echo "🧠 OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}"
+          echo "🌐 VPS_HOST=${{ secrets.VPS_HOST }}"
+          echo "👤 VPS_USER=${{ secrets.VPS_USER }}"
+
+      - name: Test SSH Connection to VPS
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: 22
+          script: |
+            echo "✅ SSH connection successful!"
+            hostname
+            uptime
+            ls -la /var/www/activlingo/backend

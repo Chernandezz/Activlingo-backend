@@ -12,6 +12,7 @@ from routes.stripe import stripe_router
 from routes.stripe_webhook import router as webhook_router
 
 app = FastAPI()
+app = FastAPI(root_path="/api")
 
 
 app.add_middleware(
@@ -35,3 +36,7 @@ app.include_router(webhook_router, prefix="/stripe", tags=["stripe-webhook"])
 @app.get("/")
 def read_root():
     return {"Hello": "World"}
+
+@app.get("/ping")
+def ping():
+    return {"message": "pong"}
