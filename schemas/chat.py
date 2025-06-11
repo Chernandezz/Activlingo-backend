@@ -3,6 +3,8 @@ from typing import List, Optional
 from datetime import datetime
 from uuid import UUID
 
+from schemas.message import Message
+
 
 class TaskItem(BaseModel):
     id: UUID
@@ -28,6 +30,8 @@ class Chat(BaseModel):
     created_at: datetime
     initial_message: Optional[str] = None
     tasks: List[TaskItem] = []
+    messages: Optional[List[Message]] = [] 
+    updated_at: datetime
 
     class Config:
         from_attributes = True 

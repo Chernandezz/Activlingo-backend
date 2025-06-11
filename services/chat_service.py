@@ -47,16 +47,43 @@ def create_chat(user_id: UUID, chat_data: ChatCreate) -> dict | None:
         raise e
 
 
-def get_chats(user_id: UUID) -> list[Chat]:
+def get_chats(user_id: UUID) -> list[dict]:
     response = (
         supabase
         .table("chats")
         .select("*")
         .eq("user_id", str(user_id))
-        .order("created_at", desc=True)
+        .order("updated_at", desc=True)  # ✅ Chats más recientes primero
         .execute()
     )
-    return response.data or []
+
+    chats = response.data or []
+
+    recent_chat_ids = [chat["id"] for chat in chats[:10]]
+
+    if recent_chat_ids:
+        messages_response = (
+            supabase
+            .table("messages")
+            .select("*")
+            .in_("chat_id", recent_chat_ids)
+            .order("timestamp")  
+            .execute()
+        )
+        messages = messages_response.data or []
+    else:
+        messages = []
+
+    messages_by_chat = {}
+    for msg in messages:
+        messages_by_chat.setdefault(msg["chat_id"], []).append(msg)
+
+    for chat in chats:
+        chat["messages"] = messages_by_chat.get(chat["id"], [])
+
+    return chats
+
+
 
 
 def get_chat_by_id(chat_id: UUID) -> dict | None:
