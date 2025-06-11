@@ -2,6 +2,7 @@
 # services/message_service.py
 # ---------------------------------------------
 
+from datetime import datetime, timezone
 import json
 import threading
 import asyncio
@@ -21,16 +22,26 @@ from services.user_dictionary_service import update_word_usage
 
 def create_message(chat_id: UUID, sender: str, content: str) -> Message | None:
     try:
+        # 1. Insertar el nuevo mensaje
         response = supabase.table("messages").insert({
             "chat_id": str(chat_id),
             "sender": sender,
             "content": content
         }).execute()
-        return Message(**response.data[0]) if response.data else None
+
+        if not response.data:
+            return None
+
+        # 2. Actualizar el campo updated_at del chat manualmente
+        supabase.table("chats").update({
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }).eq("id", str(chat_id)).execute()
+
+        return Message(**response.data[0])
+    
     except APIError as e:
         print("⚠️ Supabase insert error:", str(e))
         return None
-
 
 def handle_human_message(msg: MessageCreate) -> dict:
     # 1) Guardar mensaje humano
