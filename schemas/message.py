@@ -5,7 +5,7 @@ from uuid import UUID
 
 
 class MessageCreate(BaseModel):
-    user_id: UUID
+    user_id: UUID | None = None
     chat_id: UUID
     sender: Literal["human", "ai", "system"]
     content: str
