@@ -1,4 +1,4 @@
-# services/analysis_service.py - SERVICIO UNIFICADO
+# services/unified_analysis_service.py - SERVICIO UNIFICADO FINAL
 from config.supabase_client import supabase
 from schemas.chat_analysis import MessageAnalysis, LanguageAnalysisPoint
 from uuid import UUID
@@ -20,8 +20,8 @@ def get_user_plan_type(user_id: UUID) -> str:
         # Consultar el plan del usuario
         response = (
             supabase
-            .table("users_profile")  # O la tabla donde tengas los planes
-            .select("subscription_type")
+            .table("users")  # O la tabla donde tengas los planes
+            .select("subscription_type, plan_type")
             .eq("id", str(user_id))
             .single()
             .execute()
@@ -61,14 +61,14 @@ def get_system_message_from_chat(chat_id: UUID) -> str:
         chat_response = (
             supabase
             .table("chats")
-            .select("context, role")
+            .select("system_message, context")
             .eq("id", str(chat_id))
             .single()
             .execute()
         )
         
         if chat_response.data:
-            return chat_response.data.get("context", "") or f"You are a {chat_response.data.get('role', 'helpful')} English conversation partner."
+            return chat_response.data.get("system_message", "") or chat_response.data.get("context", "")
         
         return "You are a helpful English conversation partner."
         
@@ -88,9 +88,9 @@ async def analyze_message_by_plan(
     try:
         # Obtener tipo de plan del usuario
         # plan_type = get_user_plan_type(user_id)
-        plan_type = "premium"  # Para pruebas, usar siempre premium
-        print(f"🔍 User {user_id} has plan: {plan_type}")
+        # print(f"🔍 User {user_id} has plan: {plan_type}")
         
+        plan_type = 'premium'  # Para pruebas, usar siempre premium
         # Ejecutar análisis según el plan
         if plan_type in ["premium", "pro", "unlimited"]:
             print("🌟 Executing PREMIUM multi-agent analysis")
@@ -259,6 +259,33 @@ def get_user_dictionary_words_in_chat(user_id: UUID, chat_id: UUID) -> List[Dict
         
     except Exception as e:
         print(f"⚠️ Error finding dictionary words in chat: {e}")
+        return []
+
+def process_ai_analysis_response(ai_response: str) -> List[Dict]:
+    """
+    Procesa la respuesta del AI y la convierte en lista de diccionarios
+    """
+    try:
+        cleaned = ai_response.strip()
+        if cleaned.startswith('```json'):
+            cleaned = cleaned[7:]
+        if cleaned.endswith('```'):
+            cleaned = cleaned[:-3]
+        cleaned = cleaned.strip()
+        
+        analysis_data = json.loads(cleaned)
+        
+        if not isinstance(analysis_data, list):
+            print(f"⚠️ AI response is not a list: {type(analysis_data)}")
+            return []
+            
+        return analysis_data
+        
+    except json.JSONDecodeError as e:
+        print(f"❌ Error parsing AI response as JSON: {e}")
+        return []
+    except Exception as e:
+        print(f"❌ Unexpected error processing AI response: {e}")
         return []
 
 def calculate_chat_stats(analysis_points: List[MessageAnalysis]) -> Dict:
