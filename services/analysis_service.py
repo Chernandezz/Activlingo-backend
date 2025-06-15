@@ -1,26 +1,23 @@
-# services/analysis_service.py - SERVICIO UNIFICADO
+# services/analysis_service.py - VERSIÓN SIMPLIFICADA SOLO BASIC
+
 from config.supabase_client import supabase
 from schemas.chat_analysis import MessageAnalysis, LanguageAnalysisPoint
 from uuid import UUID
 import json
 from typing import Dict, List
 
-# Importar ambos analizadores
-from ai.multi_agent_analyzer import comprehensive_analysis as premium_analysis
+# Solo importar el basic analyzer
 from ai.analyzer_agent import basic_analysis
 
 # Categorías válidas para validación
 VALID_CATEGORIES = {"grammar", "vocabulary", "phrasal_verb", "expression", "collocation", "context_appropriateness"}
 
 def get_user_plan_type(user_id: UUID) -> str:
-    """
-    Obtiene el tipo de plan del usuario desde la base de datos
-    """
+    """Obtiene el tipo de plan del usuario desde la base de datos"""
     try:
-        # Consultar el plan del usuario
         response = (
             supabase
-            .table("users_profile")  # O la tabla donde tengas los planes
+            .table("users_profile")
             .select("subscription_type")
             .eq("id", str(user_id))
             .single()
@@ -28,22 +25,18 @@ def get_user_plan_type(user_id: UUID) -> str:
         )
         
         if response.data:
-            # Asumir que tienes campos como "premium", "basic", etc.
             plan = response.data.get("subscription_type", "basic") or response.data.get("plan_type", "basic")
             return plan.lower()
         
-        return "basic"  # Default a básico
+        return "basic"
         
     except Exception as e:
         print(f"⚠️ Error getting user plan: {e}")
-        return "basic"  # Default a básico en caso de error
+        return "basic"
 
 def get_system_message_from_chat(chat_id: UUID) -> str:
-    """
-    Obtiene el system message de un chat específico
-    """
+    """Obtiene el system message de un chat específico"""
     try:
-        # Buscar en los mensajes del chat el mensaje de tipo "system"
         response = (
             supabase
             .table("messages")
@@ -57,7 +50,6 @@ def get_system_message_from_chat(chat_id: UUID) -> str:
         if response.data and len(response.data) > 0:
             return response.data[0]["content"]
         
-        # Fallback: buscar en la tabla chats si tiene un campo system_message
         chat_response = (
             supabase
             .table("chats")
@@ -83,43 +75,41 @@ async def analyze_message_by_plan(
     user_text: str
 ) -> Dict:
     """
-    Ejecuta el análisis apropiado según el plan del usuario
+    Ejecuta el análisis usando solo el basic analyzer
     """
     try:
-        # Obtener tipo de plan del usuario
-        # plan_type = get_user_plan_type(user_id)
-        plan_type = "premium"  # Para pruebas, usar siempre premium
-        print(f"🔍 User {user_id} has plan: {plan_type}")
+        print(f"🔍 Analyzing message for user {user_id}")
+        print(f"📝 User text: {user_text}")
         
-        # Ejecutar análisis según el plan
-        if plan_type in ["premium", "pro", "unlimited"]:
-            print("🌟 Executing PREMIUM multi-agent analysis")
-            analysis_result = await premium_analysis(system_message, ai_text, user_text)
-            analysis_result["plan_type"] = "premium"
-        else:
-            print("🔧 Executing BASIC single-agent analysis")
-            analysis_result = basic_analysis(ai_text, user_text)
-            analysis_result["plan_type"] = "basic"
+        # Usar solo basic analyzer por ahora
+        print("🔧 Executing BASIC analysis")
+        analysis_result = basic_analysis(ai_text, user_text)
+        analysis_result["plan_type"] = "basic"
         
+        print(f"✅ Analysis complete: {len(analysis_result.get('feedback', []))} suggestions found")
         return analysis_result
         
     except Exception as e:
         print(f"❌ Error in analyze_message_by_plan: {e}")
-        # Fallback a análisis básico
-        fallback_result = basic_analysis(ai_text, user_text)
-        fallback_result["plan_type"] = "basic_fallback"
-        return fallback_result
+        # Fallback mínimo
+        return {
+            "feedback": [],
+            "prioritized": {"high": [], "medium": [], "low": []},
+            "is_transcribed": False,
+            "total_issues": 0,
+            "summary": "Error en el análisis",
+            "plan_type": "basic_fallback"
+        }
 
 def save_analysis(message_id: UUID, entries: List[Dict]) -> None:
-    """
-    Guarda análisis de un mensaje, filtrando entradas inválidas
-    """
+    """Guarda análisis de un mensaje, filtrando entradas inválidas"""
     if not entries:
+        print(f"✅ No analysis entries to save for message {message_id}")
         return
 
     valid_entries = []
     for entry in entries:
-        # Adaptar al nuevo formato si viene del multi-agente
+        # Adaptar formato del basic analyzer
         mistake = entry.get('original', '') or entry.get('mistake', '')
         suggestion = entry.get('corrected', '') or entry.get('suggestion', '')
         explanation = entry.get('explanation', '')
@@ -133,14 +123,16 @@ def save_analysis(message_id: UUID, entries: List[Dict]) -> None:
             explanation.strip(),
             category in VALID_CATEGORIES
         ]):
+            print(f"⚠️ Skipping invalid entry: {entry}")
             continue
             
-        # Filtrar "no errors" responses
+        # Filtrar respuestas "no errors"
         if (
             mistake in ["", "EMPTY", "No errors found"] 
             or category == "none"
             or "no se encontraron errores" in explanation.lower()
         ):
+            print(f"⚠️ Skipping 'no errors' entry")
             continue
 
         valid_entries.append({
@@ -163,9 +155,7 @@ def save_analysis(message_id: UUID, entries: List[Dict]) -> None:
         print(f"⚠️ Error saving analysis entries: {e}")
 
 def get_analysis_by_chat_id(chat_id: UUID) -> List[MessageAnalysis]:
-    """
-    Obtiene análisis siguiendo la relación correcta chat → mensajes → análisis
-    """
+    """Obtiene análisis siguiendo la relación correcta chat → mensajes → análisis"""
     try:
         # 1. Obtener todos los mensajes del chat
         messages_response = (
@@ -202,9 +192,7 @@ def get_analysis_by_chat_id(chat_id: UUID) -> List[MessageAnalysis]:
         return []
 
 def get_user_dictionary_words_in_chat(user_id: UUID, chat_id: UUID) -> List[Dict]:
-    """
-    Detecta palabras del diccionario del usuario que fueron usadas en el chat
-    """
+    """Detecta palabras del diccionario del usuario que fueron usadas en el chat"""
     try:
         # 1. Obtener todas las palabras del diccionario del usuario
         dict_response = (
@@ -262,9 +250,7 @@ def get_user_dictionary_words_in_chat(user_id: UUID, chat_id: UUID) -> List[Dict
         return []
 
 def calculate_chat_stats(analysis_points: List[MessageAnalysis]) -> Dict:
-    """
-    Calcula estadísticas del chat
-    """
+    """Calcula estadísticas del chat"""
     if not analysis_points:
         return {
             "total_errors": 0,
@@ -299,9 +285,7 @@ def calculate_chat_stats(analysis_points: List[MessageAnalysis]) -> Dict:
     }
 
 def debug_chat_analysis(chat_id: UUID) -> Dict:
-    """
-    Función de debug para verificar qué datos existen
-    """
+    """Función de debug para verificar qué datos existen"""
     try:
         # Verificar que el chat existe
         chat_response = (

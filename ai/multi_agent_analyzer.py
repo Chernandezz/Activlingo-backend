@@ -1,17 +1,28 @@
-# ai/multi_agent_analyzer.py
+# ai/multi_agent_analyzer_improved.py - VERSIÓN MEJORADA SIN SOBRELAPAMIENTO
+
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
 import json
 import asyncio
 from typing import List, Dict
+import time
 
 model = ChatOpenAI(model="gpt-4o")
 
-def create_specialized_analyzer(category: str, instructions: str):
-    """Crea un analizador especializado para una categoría específica"""
+def create_specialized_analyzer(category: str, instructions: str, system_context: str = ""):
+    """Crea un analizador especializado con contexto del sistema"""
+    
+    context_section = f"""
+    CONTEXTO DE LA CONVERSACIÓN:
+    {system_context}
+    
+    Usa este contexto para determinar qué registro y vocabulario es apropiado.
+    """ if system_context.strip() else ""
     
     system_prompt = f"""
     Eres un especialista en {category} para estudiantes de inglés que practican conversación.
+    
+    {context_section}
     
     {instructions}
     
@@ -22,10 +33,12 @@ def create_specialized_analyzer(category: str, instructions: str):
     ❌ NO sugieras reglas de escritura formal
     
     ✅ SÍ analiza errores que afectan la comunicación oral:
-    ✅ Tiempos verbales incorrectos
-    ✅ Vocabulario incorrecto o poco natural
-    ✅ Phrasal verbs mal usados
-    ✅ Expresiones poco naturales
+    ✅ Problemas específicos de tu especialidad
+    
+    REGLAS DE RESPONSABILIDAD:
+    - SOLO corrige errores de tu especialidad específica
+    - NO te metas en áreas de otros especialistas
+    - Si un error no es claramente de tu área, NO lo reportes
     
     FORMATO DE RESPUESTA:
     - Si encuentras errores/sugerencias relevantes para conversación, devuelve:
@@ -50,130 +63,276 @@ def create_specialized_analyzer(category: str, instructions: str):
     return system_prompt
 
 def get_all_specialists(system_message: str):
-    """Define todos los especialistas incluyendo contexto"""
+    """Define todos los especialistas con responsabilidades MUY específicas"""
     
-    return {
-        "grammar": create_specialized_analyzer(
+    specialists = {
+        "grammar_core": create_specialized_analyzer(
             "grammar",
             """
-            Analiza errores gramaticales que afectan la comunicación oral:
-            - Tiempos verbales incorrectos
-            - Concordancia sujeto-verbo
-            - Uso incorrecto de auxiliares (do/does/did)
-            - Preposiciones incorrectas
-            - Artículos mal usados (a/an/the)
+            SOLO corrige errores gramaticales ESTRUCTURALES básicos:
+            - Tiempos verbales incorrectos (I go yesterday → I went yesterday)
+            - Concordancia sujeto-verbo (She don't → She doesn't)
+            - Artículos básicos faltantes (go to store → go to the store)
+            - Orden de palabras básico (very I like → I like very much)
             
-            Severity guidelines:
-            - "high": Errores que impiden comprensión
-            - "medium": Errores notorios pero comprensibles  
-            - "low": Mejoras menores
-            """
+            NO TOQUES:
+            - Vocabulario (palabras individuales)
+            - Expresiones completas
+            - Phrasal verbs
+            - Registro o formalidad
+            
+            Severity: high para errores que impiden comprensión, medium para notorios
+            """,
+            system_message
         ),
         
-        "vocabulary": create_specialized_analyzer(
+        "vocabulary_precision": create_specialized_analyzer(
             "vocabulary",
             """
-            Analiza vocabulario para conversación natural:
-            - Palabras incorrectas o inexistentes
-            - Mejores alternativas más naturales
-            - Palabras que suenan raras en contexto
-            - False friends (falsos cognados)
+            SOLO corrige palabras INDIVIDUALES incorrectas:
+            - Palabras que no existen en inglés
+            - False friends obvios (realize → notice cuando significa "darse cuenta")
+            - Palabras técnicamente incorrectas en contexto
             
-            Prioriza sugerencias que hagan sonar más natural al hablante.
-            """
+            NO TOQUES:
+            - Expresiones completas o frases
+            - Gramática
+            - Registro/formalidad
+            - Combinaciones de palabras (eso es collocations)
+            
+            Ejemplo: "good mentality" → corrige solo "mentality" a "temperament"
+            """,
+            system_message
         ),
         
         "phrasal_verbs": create_specialized_analyzer(
-            "phrasal_verb", 
+            "phrasal_verb",
             """
-            Analiza uso de phrasal verbs:
-            - Phrasal verbs incorrectos o mal formados
-            - Oportunidades para usar phrasal verbs más naturales
-            - Separación incorrecta de partículas
+            SOLO analiza phrasal verbs específicos:
+            - Phrasal verbs mal formados (put of → put off)
+            - Separación incorrecta de partículas (turn the light on vs turn on the light)
+            - Oportunidades claras para usar phrasal verbs más naturales
             
-            Solo sugiere si realmente mejora la naturalidad del inglés hablado.
-            """
+            NO TOQUES:
+            - Vocabulario general
+            - Expresiones que no sean phrasal verbs
+            - Gramática básica
+            
+            Solo reporta si HAY un phrasal verb involucrado.
+            """,
+            system_message
         ),
         
-        "expressions": create_specialized_analyzer(
+        "expressions_fluency": create_specialized_analyzer(
             "expression",
             """
-            Analiza expresiones y naturalidad:
-            - Expresiones poco naturales o robóticas
-            - Traducciones literales del español
-            - Maneras más fluidas de expresar ideas
-            - Conectores más naturales
+            SOLO mejora fluidez de EXPRESIONES COMPLETAS:
+            - Expresiones que suenan robóticas o traducidas literalmente
+            - Maneras más fluidas de expresar ideas completas
+            - Conectores poco naturales entre ideas
             
-            Enfócate en hacer sonar más fluido y natural.
-            """
+            NO TOQUES:
+            - Palabras individuales (eso es vocabulary)
+            - Gramática básica
+            - Phrasal verbs específicos
+            
+            Enfócate en hacer FRASES COMPLETAS más naturales.
+            Ejemplo: "I have good mentality" → "I have a positive attitude"
+            """,
+            system_message
         ),
         
         "collocations": create_specialized_analyzer(
             "collocation",
             """
-            Analiza combinaciones de palabras:
-            - Combinaciones incorrectas (make a decision vs do a decision)
-            - Colocaciones que suenan poco naturales
-            - Mejores combinaciones de verbos + sustantivos
+            SOLO corrige COMBINACIONES específicas de palabras:
+            - Verb + noun combinations (do homework vs make homework)
+            - Adjective + noun combinations (strong coffee vs powerful coffee)
+            - Preposition combinations (interested in vs interested on)
             
-            Solo sugiere si la colocación suena claramente incorrecta.
-            """
+            NO TOQUES:
+            - Palabras individuales
+            - Expresiones completas largas
+            - Gramática básica
+            
+            Solo reporta combinaciones de 2-3 palabras que suenan incorrectas.
+            Ejemplo: "make a decision" vs "do a decision"
+            """,
+            system_message
         ),
         
-        "context_appropriateness": f"""
-        Eres un especialista en registro y apropiación contextual del inglés hablado.
-        
-        CONTEXTO/SITUACIÓN ACTUAL: {system_message}
-        
-        Analiza si el registro/formalidad es apropiado para esta situación:
-        
-        Ejemplos:
-        - "Good morning, Sir" con amigos → "Hey!" o "What's up?"
-        - "Hey dude!" en contexto profesional → "Good morning" 
-        - "I would like to request" en chat casual → "Can I..." o "Could you..."
-        - Vocabulario muy técnico en conversación casual → alternativas simples
-        
-        FORMATO DE RESPUESTA:
-        - Si el registro NO es apropiado:
-        [
-            {{
-                "category": "context_appropriateness",
-                "original": "texto con registro inapropiado",
-                "corrected": "alternativa apropiada para el contexto",
-                "issue_type": "register_mismatch",
-                "severity": "medium",
-                "explanation": "explicación de por qué no es apropiado",
-                "learning_tip": "cuándo usar cada registro",
-                "examples": ["ejemplo apropiado 1", "ejemplo apropiado 2"]
-            }}
-        ]
-        
-        - Si el registro es apropiado: []
-        
-        IMPORTANTE: Solo sugiere si hay una diferencia clara de registro.
-        """
+        "context_appropriateness": create_specialized_analyzer(
+            "context_appropriateness",
+            f"""
+            CONTEXTO ESPECÍFICO DE ESTA CONVERSACIÓN:
+            {system_message}
+            
+            SOLO analiza si el REGISTRO es apropiado para este contexto específico:
+            
+            Ejemplos de lo que SÍ debes corregir:
+            - Usar "Good morning, Sir" en contexto casual con amigos
+            - Usar "Hey dude!" en contexto profesional/formal
+            - Vocabulario muy técnico en conversación casual
+            - Lenguaje muy informal en contexto profesional
+            
+            NO TOQUES:
+            - Gramática
+            - Vocabulario técnicamente correcto
+            - Expresiones generales
+            
+            Solo reporta si hay una diferencia CLARA de registro para este contexto específico.
+            
+            IMPORTANTE: Si el registro es apropiado para el contexto, devuelve []. 
+            No busques problemas donde no los hay.
+            """,
+            system_message
+        )
     }
+    
+    print(f"🌟 [PREMIUM] Definidos {len(specialists)} especialistas especializados")
+    return specialists
 
+def deduplicate_and_prioritize(feedback_list: List[Dict]) -> List[Dict]:
+    """
+    Elimina duplicados y prioriza las correcciones más importantes
+    """
+    if not feedback_list:
+        return []
+    
+    print(f"🔍 [PREMIUM] Procesando {len(feedback_list)} sugerencias")
+    
+    # Agrupar por texto original para detectar sobrelapamiento
+    groups = {}
+    for item in feedback_list:
+        original = item.get('original', '').strip().lower()
+        if original not in groups:
+            groups[original] = []
+        groups[original].append(item)
+    
+    # Para cada grupo, elegir la mejor sugerencia
+    final_suggestions = []
+    
+    for original_text, suggestions in groups.items():
+        if len(suggestions) == 1:
+            # Solo una sugerencia, mantenerla
+            final_suggestions.append(suggestions[0])
+            print(f"🔍 [PREMIUM] Única sugerencia para '{original_text[:30]}': {suggestions[0]['category']}")
+        else:
+            # Múltiples sugerencias, elegir la mejor
+            print(f"🔍 [PREMIUM] {len(suggestions)} sugerencias para '{original_text[:30]}':")
+            
+            # Prioridad: grammar > vocabulary > expression > collocation > phrasal_verb > context
+            priority_order = ["grammar", "vocabulary", "expression", "collocation", "phrasal_verb", "context_appropriateness"]
+            
+            best_suggestion = None
+            for priority_category in priority_order:
+                for suggestion in suggestions:
+                    if suggestion.get('category') == priority_category:
+                        best_suggestion = suggestion
+                        break
+                if best_suggestion:
+                    break
+            
+            if not best_suggestion:
+                best_suggestion = suggestions[0]  # Fallback
+            
+            final_suggestions.append(best_suggestion)
+            print(f"🔍 [PREMIUM] Elegida: {best_suggestion['category']} - {best_suggestion.get('corrected', '')[:30]}")
+            
+            # Mostrar las descartadas
+            for suggestion in suggestions:
+                if suggestion != best_suggestion:
+                    print(f"🔍 [PREMIUM] Descartada: {suggestion['category']} - {suggestion.get('corrected', '')[:30]}")
+    
+    print(f"🔍 [PREMIUM] Resultado final: {len(final_suggestions)} sugerencias únicas")
+    return final_suggestions
+
+async def analyze_with_all_specialists(system_message: str, ai_text: str, user_text: str) -> List[Dict]:
+    """Ejecuta TODOS los especialistas en paralelo con mejor coordinación"""
+    
+    specialists = get_all_specialists(system_message)
+    print(f"🌟 [PREMIUM] Iniciando análisis con especialistas especializados")
+    
+    async def run_specialist(category: str, system_prompt: str):
+        start_time = time.time()
+        print(f"🌟 [PREMIUM] Iniciando especialista: {category}")
+        
+        try:
+            messages = [
+                SystemMessage(content=system_prompt),
+                AIMessage(content=ai_text),
+                HumanMessage(content=user_text)
+            ]
+            
+            result = await model.ainvoke(messages)
+            execution_time = time.time() - start_time
+            
+            if not result.content or result.content.strip() == "":
+                print(f"🌟 [PREMIUM] ⚠️ {category}: Respuesta vacía ({execution_time:.2f}s)")
+                return []
+            
+            print(f"🌟 [PREMIUM] {category}: Respuesta recibida ({execution_time:.2f}s)")
+            print(f"🌟 [PREMIUM] {category}: {result.content[:100]}...")
+            
+            try:
+                parsed = json.loads(result.content)
+                if isinstance(parsed, list):
+                    print(f"🌟 [PREMIUM] ✅ {category}: {len(parsed)} sugerencias encontradas")
+                    for i, issue in enumerate(parsed):
+                        print(f"🌟 [PREMIUM] {category}[{i+1}]: '{issue.get('original', 'N/A')[:40]}' → '{issue.get('corrected', 'N/A')[:40]}'")
+                    return parsed
+                else:
+                    print(f"🌟 [PREMIUM] ⚠️ {category}: Respuesta no es lista - {type(parsed)}")
+                    return []
+            except json.JSONDecodeError as e:
+                print(f"🌟 [PREMIUM] ❌ {category}: Error JSON - {str(e)[:100]}")
+                print(f"🌟 [PREMIUM] {category}: Contenido problemático: {result.content[:200]}")
+                return []
+                
+        except Exception as e:
+            execution_time = time.time() - start_time
+            print(f"🌟 [PREMIUM] ❌ {category}: Error general ({execution_time:.2f}s) - {e}")
+            return []
+    
+    # Ejecutar todos los especialistas en paralelo
+    print(f"🌟 [PREMIUM] Lanzando {len(specialists)} especialistas en paralelo")
+    tasks = [
+        run_specialist(category, prompt) 
+        for category, prompt in specialists.items()
+    ]
+    
+    results = await asyncio.gather(*tasks)
+    
+    # Combinar todos los resultados
+    all_feedback = []
+    for i, result in enumerate(results):
+        specialist_name = list(specialists.keys())[i]
+        print(f"🌟 [PREMIUM] {specialist_name}: Contribuyó {len(result)} sugerencias")
+        all_feedback.extend(result)
+    
+    print(f"🌟 [PREMIUM] Total recolectado: {len(all_feedback)} sugerencias")
+    
+    # NUEVO: Deduplicar y priorizar
+    final_feedback = deduplicate_and_prioritize(all_feedback)
+    
+    return final_feedback
+
+# Resto de funciones sin cambios (detect_speech_transcription, filter_transcription_errors, etc.)
 def detect_speech_transcription(text: str) -> bool:
-    """Detecta si el texto parece provenir de speech-to-text"""
     if not text:
         return False
-        
     indicators = [
-        len(text.split()) > 10 and text.count('.') == 0,  # Texto largo sin puntos
-        text.count(',') == 0 and len(text.split()) > 5,   # Sin comas en texto mediano
-        not text[0].isupper(),                            # No empieza en mayúscula
+        len(text.split()) > 10 and text.count('.') == 0,
+        text.count(',') == 0 and len(text.split()) > 5,
+        not text[0].isupper(),
         '?' not in text and any(word in text.lower() for word in ['what', 'how', 'when', 'where', 'why'])
     ]
     return sum(indicators) >= 2
 
 def filter_transcription_errors(feedback_list: List[Dict], is_transcribed: bool) -> List[Dict]:
-    """Filtra errores irrelevantes para conversación oral"""
-    
     if not is_transcribed:
         return feedback_list
     
-    # Keywords que indican errores de transcripción/puntuación
     irrelevant_keywords = [
         "coma", "comma", "punto", "period", "mayúscula", "capital", 
         "signo de interrogación", "question mark", "puntuación", "punctuation",
@@ -183,24 +342,13 @@ def filter_transcription_errors(feedback_list: List[Dict], is_transcribed: bool)
     filtered = []
     for item in feedback_list:
         explanation = item.get("explanation", "").lower()
-        issue = item.get("issue", "").lower() if "issue" in item else ""
-        learning_tip = item.get("learning_tip", "").lower()
-        
-        # Filtrar si contiene keywords irrelevantes
-        text_to_check = f"{explanation} {issue} {learning_tip}"
-        if not any(keyword in text_to_check for keyword in irrelevant_keywords):
+        if not any(keyword in explanation for keyword in irrelevant_keywords):
             filtered.append(item)
     
     return filtered
 
 def categorize_feedback_by_severity(feedback_list: List[Dict]) -> Dict[str, List[Dict]]:
-    """Organiza feedback por severidad"""
-    
-    categorized = {
-        "high": [],      # Errores que impiden comunicación
-        "medium": [],    # Errores notorios pero comprensibles
-        "low": []        # Sugerencias de mejora opcional
-    }
+    categorized = {"high": [], "medium": [], "low": []}
     
     for item in feedback_list:
         severity = item.get("severity", "medium")
@@ -212,8 +360,6 @@ def categorize_feedback_by_severity(feedback_list: List[Dict]) -> Dict[str, List
     return categorized
 
 def generate_summary(prioritized_feedback: Dict[str, List[Dict]]) -> str:
-    """Genera un resumen amigable del análisis"""
-    
     high_count = len(prioritized_feedback["high"])
     medium_count = len(prioritized_feedback["medium"])
     low_count = len(prioritized_feedback["low"])
@@ -229,75 +375,47 @@ def generate_summary(prioritized_feedback: Dict[str, List[Dict]]) -> str:
     else:
         return f"{high_count} correcciones importantes para mejorar la comunicación 🎯"
 
-async def analyze_with_all_specialists(system_message: str, ai_text: str, user_text: str) -> List[Dict]:
-    """Ejecuta TODOS los especialistas en paralelo"""
-    
-    specialists = get_all_specialists(system_message)
-    
-    async def run_specialist(category: str, system_prompt: str):
-        try:
-            messages = [
-                SystemMessage(content=system_prompt),
-                AIMessage(content=ai_text),
-                HumanMessage(content=user_text)
-            ]
-            
-            result = await model.ainvoke(messages)
-            
-            # 🔧 ARREGLO: Verificar respuesta vacía
-            if not result.content or result.content.strip() == "":
-                print(f"⚠️ Empty response from {category}, returning empty array")
-                return []
-            
-            try:
-                parsed = json.loads(result.content)
-                return parsed if isinstance(parsed, list) else []
-            except json.JSONDecodeError as e:
-                print(f"⚠️ JSON error in {category}: {result.content}")
-                return []
-                
-        except Exception as e:
-            print(f"❌ Error en especialista {category}: {e}")
-            return []
-    
-    # Ejecutar todos los especialistas en paralelo
-    tasks = [
-        run_specialist(category, prompt) 
-        for category, prompt in specialists.items()
-    ]
-    
-    results = await asyncio.gather(*tasks)
-    
-    # Combinar todos los resultados
-    all_feedback = []
-    for result in results:
-        all_feedback.extend(result)
-    
-    return all_feedback
-
 async def comprehensive_analysis(system_message: str, ai_text: str, user_text: str) -> Dict:
-    """Análisis completo optimizado para conversación oral"""
+    """Análisis completo mejorado para conversación oral"""
+    
+    print("🌟 [PREMIUM] === STARTING IMPROVED COMPREHENSIVE ANALYSIS ===")
+    print(f"🌟 [PREMIUM] System context: {system_message[:100]}...")
+    print(f"🌟 [PREMIUM] User text: {user_text}")
     
     # Detectar si parece transcripción de voz
     seems_transcribed = detect_speech_transcription(user_text)
     
-    # Obtener feedback de todos los especialistas
+    # Obtener feedback de todos los especialistas (mejorados)
+    print("🌟 [PREMIUM] Fase 1: Ejecutando especialistas mejorados")
     raw_feedback = await analyze_with_all_specialists(system_message, ai_text, user_text)
     
     # Filtrar errores irrelevantes para conversación oral
+    print("🌟 [PREMIUM] Fase 2: Filtrando errores de transcripción")
     filtered_feedback = filter_transcription_errors(raw_feedback, seems_transcribed)
     
     # Categorizar por severidad
+    print("🌟 [PREMIUM] Fase 3: Categorizando por severidad")
     prioritized = categorize_feedback_by_severity(filtered_feedback)
     
-    # Limitar sugerencias para no abrumar (priorizar las importantes)
-    max_suggestions = 3 if seems_transcribed else 5
+    # Limitar sugerencias para no abrumar (máximo 4 de alta calidad)
+    max_suggestions = 3 if seems_transcribed else 4
     final_feedback = (prioritized["high"] + prioritized["medium"] + prioritized["low"])[:max_suggestions]
     
-    return {
+    print(f"🌟 [PREMIUM] Fase 4: Limitado a {len(final_feedback)} sugerencias finales (max: {max_suggestions})")
+    
+    # Mostrar resultado final
+    if final_feedback:
+        print("🌟 [PREMIUM] SUGERENCIAS FINALES:")
+        for i, item in enumerate(final_feedback, 1):
+            print(f"🌟 [PREMIUM] [{i}] {item.get('category')}: '{item.get('original', '')[:40]}' → '{item.get('corrected', '')[:40]}'")
+    
+    result = {
         "feedback": final_feedback,
         "prioritized": prioritized,
         "is_transcribed": seems_transcribed,
         "total_issues": len(filtered_feedback),
         "summary": generate_summary(prioritized)
     }
+    
+    print("🌟 [PREMIUM] === IMPROVED COMPREHENSIVE ANALYSIS COMPLETE ===")
+    return result
