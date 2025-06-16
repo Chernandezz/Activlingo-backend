@@ -17,9 +17,16 @@ app = FastAPI(root_path="/api")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:4200", "http://147.182.130.162" ], 
+    allow_origins=[
+        "http://localhost:4200",
+        "http://127.0.0.1:4200",
+        "http://147.182.130.162",
+        "https://app.activlingo.com",
+        "http://localhost:3000",
+        # Agrega tu dominio de producción aquí
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
