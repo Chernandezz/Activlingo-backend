@@ -24,9 +24,8 @@ def get_user_plan_type(user_id: UUID) -> str:
             .execute()
         )
         
-        if response.data:
-            plan = response.data.get("subscription_type", "basic") or response.data.get("plan_type", "basic")
-            return plan.lower()
+        if response.data and response.data.get("subscription_type"):
+            return response.data["subscription_type"].lower()
         
         return "basic"
         
