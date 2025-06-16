@@ -7,8 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 dictionary_agent = ChatOpenAI(
-    model="gpt-3.5-turbo-0125",
-    temperature=0.3
+    model="gpt-3.5-turbo-0125"
 )
 
 def get_definitions_from_gpt(word: str) -> list[dict]:
