@@ -1,4 +1,4 @@
-# services/user_service.py - VERSIÓN SIMPLIFICADA Y CONSISTENTE
+# services/user_service.py - VERSIÓN CON MANEJO DE DUPLICADOS
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 from supabase import create_client, Client
@@ -24,6 +24,7 @@ def get_user_profile(user_id: UUID) -> Dict:
         )
 
         if not result.data or len(result.data) == 0:
+            print(f"📝 No profile found for user {user_id}, creating default...")
             return create_default_profile(user_id)
 
         profile = result.data[0]
@@ -53,26 +54,89 @@ def get_user_profile(user_id: UUID) -> Dict:
         }
 
 def create_default_profile(user_id: UUID) -> Dict:
-    """Crea un perfil por defecto para usuarios nuevos"""
+    """Crea un perfil por defecto para usuarios nuevos - MANEJA DUPLICADOS"""
     try:
+        user_id_str = str(user_id)
+        
+        # Primero verificar si ya existe el perfil
+        existing_check = (
+            supabase.table("users_profile")
+            .select("*")
+            .eq("id", user_id_str)
+            .execute()
+        )
+        
+        if existing_check.data and len(existing_check.data) > 0:
+            print(f"✅ Profile already exists for user {user_id_str}")
+            profile = existing_check.data[0]
+            trial_info = process_trial_info(profile)
+            return {
+                "id": profile.get("id"),
+                "email": profile.get("email", ""),
+                "subscription_type": profile.get("subscription_type", "basic"),
+                "is_subscribed": profile.get("is_subscribed", False),
+                "trial_active": trial_info["trial_active"],
+                "trial_end": trial_info["trial_end"],
+                "onboarding_seen": profile.get("onboarding_seen", False),
+                "created_at": profile.get("created_at", ""),
+            }
+        
+        # Si no existe, crear nuevo perfil
         default_profile = {
-            "id": str(user_id),
+            "id": user_id_str,
             "subscription_type": "basic",
             "is_subscribed": False,
             "trial_start": datetime.now(timezone.utc).isoformat(),
             "onboarding_seen": False,
         }
         
-        supabase.table("users_profile").insert(default_profile).execute()
+        print(f"📝 Creating new profile for user {user_id_str}")
+        result = supabase.table("users_profile").insert(default_profile).execute()
         
-        return {
-            **default_profile,
-            "trial_active": True,
-            "trial_end": (datetime.now(timezone.utc) + timedelta(days=3)).isoformat(),
-        }
+        if result.data:
+            trial_end = datetime.now(timezone.utc) + timedelta(days=3)
+            return {
+                **default_profile,
+                "trial_active": True,
+                "trial_end": trial_end.isoformat(),
+            }
+        else:
+            raise Exception("Failed to insert profile")
         
     except Exception as e:
-        print(f"❌ Error creating default profile: {e}")
+        error_msg = str(e)
+        print(f"❌ Error creating default profile: {error_msg}")
+        
+        # Si es error de clave duplicada, intentar obtener el perfil existente
+        if "duplicate key" in error_msg.lower() or "23505" in error_msg:
+            print(f"🔄 Duplicate key error, fetching existing profile for {user_id_str}")
+            try:
+                existing = (
+                    supabase.table("users_profile")
+                    .select("*")
+                    .eq("id", user_id_str)
+                    .execute()
+                )
+                
+                if existing.data and len(existing.data) > 0:
+                    profile = existing.data[0]
+                    trial_info = process_trial_info(profile)
+                    print(f"✅ Found existing profile for user {user_id_str}")
+                    return {
+                        "id": profile.get("id"),
+                        "email": profile.get("email", ""),
+                        "subscription_type": profile.get("subscription_type", "basic"),
+                        "is_subscribed": profile.get("is_subscribed", False),
+                        "trial_active": trial_info["trial_active"],
+                        "trial_end": trial_info["trial_end"],
+                        "onboarding_seen": profile.get("onboarding_seen", False),
+                        "created_at": profile.get("created_at", ""),
+                    }
+            except Exception as inner_e:
+                print(f"❌ Error fetching existing profile: {inner_e}")
+        
+        # Si todo falla, devolver perfil básico sin error
+        print(f"⚠️ Returning fallback profile for user {user_id_str}")
         return {
             "id": str(user_id),
             "subscription_type": "basic",
