@@ -1,5 +1,5 @@
 # ---------------------------------------------
-# services/message_service.py
+# services/message_service.py - CORREGIDO
 # ---------------------------------------------
 
 from datetime import datetime, timezone
@@ -8,14 +8,13 @@ import threading
 import asyncio
 from uuid import UUID
 
-from ai.multi_agent_analyzer import analyze_with_multiple_agents
-from ai.analyzer_agent import analyze_message
+# IMPORTS ACTUALIZADOS
+from services.analysis_service import analyze_message_by_plan, get_system_message_from_chat, save_analysis
 from ai.task_checker_agent import check_tasks_completion
 from config.supabase_client import supabase
 from schemas.message import Message, MessageCreate
 from postgrest.exceptions import APIError
 from ai.chat_agent import get_ai_response
-from services.analysis_service import save_analysis
 from services.tasks_service import get_tasks_for_chat, mark_tasks_completed_bulk
 from services.user_dictionary_service import update_word_usage
 
@@ -52,13 +51,7 @@ def handle_human_message(msg: MessageCreate) -> dict:
     # 2) Obtener todo el historial (incluye system, human, ai)
     history = get_messages(msg.chat_id)
 
-    # 3) Asegurar que exista un mensaje 'system' en la base de datos
-    #    En create_chat ya se insertó un 'system' inicial.
-    #    Aquí no lo re-creamos, simplemente lo usamos si está.
-    #    Si por algún motivo no hay 'system', se asume que no se perdió
-    #    porque create_chat lo agrega siempre al crear el chat.
-
-    # 4) Construir lista de mensajes para la IA: system primero, luego human/ai
+    # 3) Construir lista de mensajes para la IA: system primero, luego human/ai
     lc_messages = []
     for m in history:
         if m.sender == "system":
@@ -67,13 +60,13 @@ def handle_human_message(msg: MessageCreate) -> dict:
         if m.sender in {"human", "ai"}:
             lc_messages.append({"role": m.sender, "content": m.content})
 
-    # 5) Obtener respuesta de la IA
+    # 4) Obtener respuesta de la IA
     response = get_ai_response(lc_messages)
 
-    # 6) Guardar respuesta de IA
+    # 5) Guardar respuesta de IA
     ai_msg = create_message(msg.chat_id, "ai", response.content)
 
-    # 7) Verificar y marcar tareas completadas
+    # 6) Verificar y marcar tareas completadas
     completed_ids = []
     try:
         tasks = get_tasks_for_chat(msg.chat_id)
@@ -84,13 +77,13 @@ def handle_human_message(msg: MessageCreate) -> dict:
     except Exception as e:
         print("⚠️ Task checking failed:", e)
 
-    # 8) Lanzar procesos secundarios en background
+    # 7) Lanzar procesos secundarios en background
     def bg():
         process_background_tasks(msg, human_msg.id, response.content)
 
     threading.Thread(target=bg).start()
 
-    # 9) Devolver la respuesta de la IA, el mensaje humano y las tareas completadas
+    # 8) Devolver la respuesta de la IA, el mensaje humano y las tareas completadas
     return {
         "message": ai_msg,
         "human_message": human_msg,
@@ -105,19 +98,38 @@ def process_background_tasks(msg: MessageCreate, human_msg_id: UUID, ai_response
     except Exception as e:
         print("⚠️ Word update failed:", e)
 
-    # 2) Análisis lingüístico en segundo plano
+    # 2) Análisis lingüístico en segundo plano - NUEVO SISTEMA
     try:
         async def analyze_async():
             try:
-                feedback = analyze_message(ai_response, msg.content)
-                feedback_data = json.loads(feedback) if isinstance(feedback, str) else feedback
-                save_analysis(human_msg_id, feedback_data)
+                print(f"🔍 Starting analysis for user {msg.user_id}")
+                
+                # Obtener system message del chat
+                system_message = get_system_message_from_chat(msg.chat_id)
+                
+                # Analizar según el plan del usuario (basic o premium)
+                feedback_result = await analyze_message_by_plan(
+                    user_id=msg.user_id,
+                    system_message=system_message,
+                    ai_text=ai_response,
+                    user_text=msg.content
+                )
+                
+                # Extraer solo el feedback para guardar en BD
+                feedback_data = feedback_result.get("feedback", [])
+                
+                if feedback_data:
+                    save_analysis(human_msg_id, feedback_data)
+                    print(f"✅ Saved {len(feedback_data)} analysis entries (plan: {feedback_result.get('plan_type')})")
+                else:
+                    print("✅ No errors found - perfect message!")
+                    
             except Exception as e:
-                print("⚠️ Analyzer error:", e)
+                print(f"⚠️ Analyzer error: {e}")
 
         asyncio.run(analyze_async())
     except Exception as e:
-        print("⚠️ Could not launch async analysis:", e)
+        print(f"⚠️ Could not launch async analysis: {e}")
 
 
 def get_messages(chat_id: UUID) -> list[Message]:
