@@ -107,7 +107,7 @@ def check_trial_status_legacy(user_id: UUID = Depends(get_current_user)):
     """Obtiene el estado del trial del usuario - LEGACY"""
     try:
         status = is_trial_active(user_id)
-        return {"success": True, "trial_status": status}
+        return status
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error checking trial status: {str(e)}")
 
@@ -118,7 +118,6 @@ def get_user_plan_info_legacy(user_id: UUID = Depends(get_current_user)):
         from services.subscription_service import get_user_plan_access
         access_info = get_user_plan_access(user_id)
         
-        # Convertir al formato legacy
         return {
             "success": True,
             "plan_info": {

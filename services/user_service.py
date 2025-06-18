@@ -136,17 +136,17 @@ def get_or_create_basic_profile(user_id: UUID) -> Dict:
             "trial_start": datetime.now(timezone.utc).isoformat()
         }
     
-    
+
 def start_user_trial(user_id: UUID) -> Dict:
     """Activa el trial manualmente para el usuario"""
     try:
         # Validar que no tenga suscripción activa ni trial vigente
-        current = get_current_subscription(user_id)
-        if current and current.get("status") in ["active", "trial"]:
-            return {
-                "success": False,
-                "message": "Ya tienes una suscripción activa o un trial vigente"
-            }
+        # current = get_current_subscription(user_id)
+        # if current and current.get("status") in ["active", "trial"]:
+        #     return {
+        #         "success": False,
+        #         "message": "Ya tienes una suscripción activa o un trial vigente"
+        #     }
 
         now = datetime.now(timezone.utc)
         trial_end = now + timedelta(days=3)
@@ -360,7 +360,7 @@ def check_trial_subscription(user_id: UUID) -> Optional[Dict]:
             trial_start = datetime.fromisoformat(
                 profile_result.data["trial_start"].replace("Z", "+00:00")
             )
-            trial_end = trial_start + timedelta(days=7)  # 7 días de trial
+            trial_end = trial_start + timedelta(days=3)  # 3 días de trial
             now = datetime.now(timezone.utc)
             
             if now <= trial_end:
@@ -569,7 +569,7 @@ def is_trial_active(user_id: UUID) -> Dict:
 
         if trial_start_str and subscription_type == "trial":
             trial_start = datetime.fromisoformat(trial_start_str.replace("Z", "+00:00"))
-            trial_end_dt = trial_start + timedelta(days=7)
+            trial_end_dt = trial_start + timedelta(days=3)
             now = datetime.now(timezone.utc)
 
             if now <= trial_end_dt:
