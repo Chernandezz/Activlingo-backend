@@ -1,4 +1,4 @@
-# services/user_service.py - VERSIÓN CON NUEVAS TABLAS
+# services/user_service.py - LIMPIO Y ORGANIZADO
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 from supabase import create_client, Client
@@ -13,51 +13,26 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# ========== PERFIL Y ESTADÍSTICAS ==========
-
+# ========== PERFIL COMPLETO ==========
 
 def get_full_user_profile(user_id: UUID) -> Dict:
-    """Obtiene el perfil completo del usuario con estadísticas y suscripción - CORREGIDO"""
+    """Obtiene el perfil completo del usuario con estadísticas y suscripción"""
     try:
         user_id_str = str(user_id)
         
-        # ✅ CORREGIDO: Timeout más largo para Supabase
-        print(f"🔍 Getting profile for user: {user_id_str}")
-        
-        # Obtener información básica del usuario con timeout
-        try:
-            auth_user = supabase.auth.admin.get_user_by_id(user_id_str)
-            print(f"✅ Auth user retrieved: {auth_user.user.email if auth_user.user else 'None'}")
-        except Exception as auth_error:
-            print(f"⚠️ Auth user retrieval failed: {auth_error}")
-            auth_user = None
+        # Obtener usuario de auth
+        auth_user = supabase.auth.admin.get_user_by_id(user_id_str)
         
         # Obtener o crear perfil básico
-        try:
-            profile = get_or_create_basic_profile(user_id)
-            print(f"✅ Profile retrieved: {profile.get('id', 'None')}")
-        except Exception as profile_error:
-            print(f"⚠️ Profile retrieval failed: {profile_error}")
-            profile = {"id": user_id_str, "onboarding_seen": False}
+        profile = get_or_create_profile(user_id)
         
-        # Obtener estadísticas (con fallback)
-        try:
-            stats = get_user_stats(user_id)
-            print(f"✅ Stats retrieved: {stats.get('total_conversations', 0)} conversations")
-        except Exception as stats_error:
-            print(f"⚠️ Stats retrieval failed: {stats_error}")
-            stats = get_default_stats()
+        # Obtener estadísticas
+        stats = get_user_stats(user_id)
         
-        # Obtener suscripción actual (con fallback)
-        try:
-            subscription = get_current_subscription(user_id)
-            print(f"✅ Subscription retrieved: {subscription.get('status', 'None') if subscription else 'None'}")
-        except Exception as sub_error:
-            print(f"⚠️ Subscription retrieval failed: {sub_error}")
-            subscription = None
+        # Obtener suscripción actual
+        subscription = get_current_subscription(user_id)
         
-        # ✅ CORREGIDO: Construir respuesta con datos seguros
-        result = {
+        return {
             "user": {
                 "id": user_id_str,
                 "email": auth_user.user.email if auth_user and auth_user.user else "",
@@ -65,139 +40,63 @@ def get_full_user_profile(user_id: UUID) -> Dict:
                 "avatar_url": auth_user.user.user_metadata.get("avatar_url", "") if auth_user and auth_user.user else "",
                 "created_at": str(auth_user.user.created_at) if auth_user and auth_user.user else "",
             },
-            "stats": stats or get_default_stats(),
-            "subscription": subscription
+            "stats": stats,
+            "subscription": subscription,
+            "profile": profile
         }
         
-        print(f"✅ Full profile assembled successfully for {user_id_str}")
-        return result
-        
     except Exception as e:
-        error_msg = str(e)
-        print(f"❌ Error getting full user profile: {error_msg}")
-        
-        # ✅ CORREGIDO: Retornar datos mínimos en lugar de error
+        print(f"❌ Error getting full user profile: {e}")
         return {
-            "user": {
-                "id": str(user_id), 
-                "email": "", 
-                "name": "",
-                "avatar_url": "",
-                "created_at": ""
-            },
+            "user": {"id": str(user_id), "email": "", "name": "", "avatar_url": "", "created_at": ""},
             "stats": get_default_stats(),
             "subscription": None,
-            "error": "Profile data partially unavailable"
+            "profile": {"onboarding_seen": False}
         }
 
-# ✅ AGREGAR: Función helper para manejo robusto de perfil
-def get_or_create_basic_profile(user_id: UUID) -> Dict:
-    """Obtiene o crea el perfil básico del usuario - VERSION ROBUSTA"""
-    try:
-        user_id_str = str(user_id)
-        
-        # Verificar si existe con timeout corto
-        result = supabase.table("users_profile").select("*").eq("id", user_id_str).execute()
-        
-        if result.data and len(result.data) > 0:
-            print(f"✅ Profile found for {user_id_str}")
-            return result.data[0]
-        
-        print(f"⚠️ Profile not found for {user_id_str}, creating minimal profile...")
-        
-        # Crear perfil mínimo
-        now = datetime.now(timezone.utc).isoformat()
-        new_profile = {
-            "id": user_id_str,
-            "trial_start": now,
-            "onboarding_seen": False,
-            "is_subscribed": False,
-            "created_at": now,
-            "updated_at": now
-        }
-        
-        # Usar upsert para evitar errores de duplicado
-        result = supabase.table("users_profile").upsert(new_profile).execute()
-        
-        if result.data and len(result.data) > 0:
-            print(f"✅ Profile created for {user_id_str}")
-            return result.data[0]
-        else:
-            print(f"⚠️ Profile creation returned no data for {user_id_str}")
-            return new_profile
-        
-    except Exception as e:
-        print(f"❌ Error in get_or_create_basic_profile: {e}")
-        # Retornar perfil mínimo en memoria
-        return {
-            "id": str(user_id), 
-            "onboarding_seen": False, 
-            "is_subscribed": False,
-            "trial_start": datetime.now(timezone.utc).isoformat()
-        }
-    
-
-def start_user_trial(user_id: UUID) -> Dict:
-    """Activa el trial manualmente para el usuario"""
-    try:
-        # Validar que no tenga suscripción activa ni trial vigente
-        # current = get_current_subscription(user_id)
-        # if current and current.get("status") in ["active", "trial"]:
-        #     return {
-        #         "success": False,
-        #         "message": "Ya tienes una suscripción activa o un trial vigente"
-        #     }
-
-        now = datetime.now(timezone.utc)
-        trial_end = now + timedelta(days=3)
-
-        supabase.table("users_profile").update({
-            "trial_start": now.isoformat(),
-            "onboarding_seen": True,
-            "subscription_type": "trial",
-            "updated_at": now.isoformat()
-        }).eq("id", str(user_id)).execute()
-
-        return {
-            "success": True,
-            "message": "Trial activado exitosamente",
-            "trial_start": now.isoformat(),
-            "trial_end": trial_end.isoformat()
-        }
-
-    except Exception as e:
-        print(f"❌ Error al activar el trial: {e}")
-        return {"success": False, "message": "Error interno"}
-
-
-def get_or_create_basic_profile(user_id: UUID) -> Dict:
+def get_or_create_profile(user_id: UUID) -> Dict:
     """Obtiene o crea el perfil básico del usuario"""
     try:
         user_id_str = str(user_id)
         
-        # Verificar si existe
         result = supabase.table("users_profile").select("*").eq("id", user_id_str).execute()
         
         if result.data and len(result.data) > 0:
             return result.data[0]
         
         # Crear perfil básico
+        now = datetime.now(timezone.utc).isoformat()
         new_profile = {
             "id": user_id_str,
-            "trial_start": datetime.now(timezone.utc).isoformat(),
+            "trial_start": now,
             "onboarding_seen": False,
+            "created_at": now,
+            "updated_at": now
         }
         
         result = supabase.table("users_profile").insert(new_profile).execute()
-        
-        # También crear estadísticas iniciales
         create_initial_user_stats(user_id)
         
         return result.data[0] if result.data else new_profile
         
     except Exception as e:
-        print(f"❌ Error creating basic profile: {e}")
+        print(f"❌ Error getting/creating profile: {e}")
         return {"id": str(user_id), "onboarding_seen": False}
+
+def update_user_profile(user_id: UUID, updates: Dict) -> Dict:
+    """Actualiza el perfil del usuario"""
+    try:
+        updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+        
+        result = supabase.table("users_profile").update(updates).eq("id", str(user_id)).execute()
+        
+        return {"message": "Profile updated successfully"}
+        
+    except Exception as e:
+        print(f"❌ Error updating profile: {e}")
+        raise Exception(f"Failed to update profile: {str(e)}")
+
+# ========== ESTADÍSTICAS ==========
 
 def get_user_stats(user_id: UUID) -> Dict:
     """Obtiene las estadísticas del usuario"""
@@ -218,7 +117,6 @@ def get_user_stats(user_id: UUID) -> Dict:
                 "words_learned_this_month": stats.get("words_this_month", 0)
             }
         else:
-            # Crear estadísticas iniciales
             return create_initial_user_stats(user_id)
             
     except Exception as e:
@@ -265,14 +163,15 @@ def create_initial_user_stats(user_id: UUID) -> Dict:
 
 def get_default_stats() -> Dict:
     """Retorna estadísticas por defecto"""
+    now = datetime.now(timezone.utc).isoformat()
     return {
         "total_conversations": 0,
         "current_streak": 0,
         "longest_streak": 0,
         "total_words_learned": 0,
         "average_session_minutes": 0,
-        "join_date": datetime.now(timezone.utc).isoformat(),
-        "last_activity": datetime.now(timezone.utc).isoformat(),
+        "join_date": now,
+        "last_activity": now,
         "conversations_this_month": 0,
         "words_learned_this_month": 0
     }
@@ -282,41 +181,33 @@ def calculate_average_session(stats: Dict) -> int:
     total_minutes = stats.get("total_session_minutes", 0)
     total_conversations = stats.get("total_conversations", 0)
     
-    if total_conversations > 0:
-        return int(total_minutes / total_conversations)
-    
-    return 0
+    return int(total_minutes / total_conversations) if total_conversations > 0 else 0
 
 # ========== SUSCRIPCIONES ==========
 
 def get_current_subscription(user_id: UUID) -> Optional[Dict]:
-    """Obtiene la suscripción actual del usuario o verifica el trial"""
+    """Obtiene la suscripción actual del usuario"""
     try:
+        # Buscar suscripción activa
         result = (
             supabase.table("user_subscriptions")
             .select("""
                 *,
-                subscription_plans(
-                    id, name, slug, price, currency, billing_interval,
-                    features, max_conversations_per_day, max_words_per_day,
-                    priority_support
-                )
+                subscription_plans(*)
             """)
             .eq("user_id", str(user_id))
             .eq("status", "active")
             .limit(1)
-            .maybe_single()
             .execute()
         )
 
-        # ✅ Validación defensiva contra None
-        if result and result.data:
-            sub = result.data
+        if result.data and len(result.data) > 0:
+            sub = result.data[0]
             plan = sub.get("subscription_plans", {})
 
             return {
                 "id": sub.get("id"),
-                "user_id": sub.get("user_id"),
+                "status": sub.get("status"),
                 "plan": {
                     "id": plan.get("id"),
                     "name": plan.get("name"),
@@ -324,58 +215,51 @@ def get_current_subscription(user_id: UUID) -> Optional[Dict]:
                     "price": plan.get("price"),
                     "currency": plan.get("currency"),
                     "billing_interval": plan.get("billing_interval"),
-                    "features": plan.get("features", []),
-                    "max_conversations": plan.get("max_conversations_per_day", -1),
-                    "max_words_per_day": plan.get("max_words_per_day", -1),
-                    "priority_support": plan.get("priority_support", False)
                 },
-                "status": sub.get("status"),
                 "starts_at": sub.get("starts_at"),
                 "ends_at": sub.get("ends_at"),
-                "trial_ends_at": sub.get("trial_ends_at"),
-                "canceled_at": sub.get("canceled_at")
+                "current_period_end": sub.get("current_period_end")
             }
 
-        # Si no hay suscripción activa, verificar el trial
+        # Si no hay suscripción activa, verificar trial
         return check_trial_subscription(user_id)
 
     except Exception as e:
         print(f"❌ Error getting current subscription: {e}")
         return check_trial_subscription(user_id)
 
-
 def check_trial_subscription(user_id: UUID) -> Optional[Dict]:
     """Verifica si el usuario tiene trial activo"""
     try:
-        # Obtener información del trial desde users_profile
-        profile_result = (
+        result = (
             supabase.table("users_profile")
             .select("trial_start")
             .eq("id", str(user_id))
-            .single()
             .execute()
         )
         
-        if profile_result.data and profile_result.data.get("trial_start"):
+        if result.data and len(result.data) > 0 and result.data[0].get("trial_start"):
             trial_start = datetime.fromisoformat(
-                profile_result.data["trial_start"].replace("Z", "+00:00")
+                result.data[0]["trial_start"].replace("Z", "+00:00")
             )
-            trial_end = trial_start + timedelta(days=3)  # 3 días de trial
+            trial_end = trial_start + timedelta(days=3)
             now = datetime.now(timezone.utc)
             
             if now <= trial_end:
-                # Obtener el plan básico para el trial
-                basic_plan = get_plan_by_slug("trial")
-                
                 return {
                     "id": None,
-                    "user_id": str(user_id),
-                    "plan": basic_plan,
                     "status": "trial",
+                    "plan": {
+                        "id": None,
+                        "name": "Prueba Gratuita",
+                        "slug": "trial",
+                        "price": 0,
+                        "currency": "USD",
+                        "billing_interval": "trial",
+                    },
                     "starts_at": trial_start.isoformat(),
-                    "ends_at": None,
-                    "trial_ends_at": trial_end.isoformat(),
-                    "canceled_at": None
+                    "ends_at": trial_end.isoformat(),
+                    "current_period_end": trial_end.isoformat()
                 }
         
         return None
@@ -405,9 +289,6 @@ def get_available_plans() -> List[Dict]:
                 "currency": plan.get("currency"),
                 "billing_interval": plan.get("billing_interval"),
                 "features": plan.get("features", []),
-                "max_conversations": plan.get("max_conversations_per_day", -1),
-                "max_words_per_day": plan.get("max_words_per_day", -1),
-                "priority_support": plan.get("priority_support", False),
                 "stripe_price_id": plan.get("stripe_price_id")
             })
         
@@ -417,89 +298,57 @@ def get_available_plans() -> List[Dict]:
         print(f"❌ Error getting available plans: {e}")
         return []
 
-def get_plan_by_slug(slug: str) -> Optional[Dict]:
-    """Obtiene un plan por su slug"""
+# ========== TRIAL ==========
+
+def start_user_trial(user_id: UUID) -> Dict:
+    """Inicia el período de prueba gratuita"""
     try:
-        result = (
-            supabase.table("subscription_plans")
-            .select("*")
-            .eq("slug", slug)
-            .eq("is_active", True)
-            .single()
-            .execute()
-        )
-        
-        if result.data:
-            plan = result.data
-            return {
-                "id": plan.get("id"),
-                "name": plan.get("name"),
-                "slug": plan.get("slug"),
-                "price": plan.get("price"),
-                "currency": plan.get("currency"),
-                "billing_interval": plan.get("billing_interval"),
-                "features": plan.get("features", []),
-                "max_conversations": plan.get("max_conversations_per_day", -1),
-                "max_words_per_day": plan.get("max_words_per_day", -1),
-                "priority_support": plan.get("priority_support", False)
-            }
-        
-        return None
-        
+        now = datetime.now(timezone.utc)
+        trial_end = now + timedelta(days=3)
+
+        supabase.table("users_profile").update({
+            "trial_start": now.isoformat(),
+            "onboarding_seen": True,
+            "updated_at": now.isoformat()
+        }).eq("id", str(user_id)).execute()
+
+        return {
+            "success": True,
+            "message": "Trial started successfully",
+            "trial_start": now.isoformat(),
+            "trial_end": trial_end.isoformat()
+        }
+
     except Exception as e:
-        print(f"❌ Error getting plan by slug: {e}")
-        return None
+        print(f"❌ Error starting trial: {e}")
+        return {"success": False, "message": "Failed to start trial"}
 
 # ========== LOGROS ==========
 
 def get_user_achievements(user_id: UUID) -> Dict:
-    """Obtiene todos los logros del usuario"""
+    """Obtiene los logros del usuario"""
     try:
-        # Obtener todos los logros disponibles
-        all_achievements = (
-            supabase.table("achievements")
-            .select("*")
-            .eq("is_active", True)
-            .execute()
-        )
+        # Logros de ejemplo - implementar lógica real después
+        achievements = [
+            {
+                "id": "1",
+                "title": "Primera conversación",
+                "description": "Completa tu primera conversación",
+                "icon": "fas fa-comment",
+                "unlocked": True,
+                "unlocked_at": datetime.now(timezone.utc).isoformat()
+            },
+            {
+                "id": "2", 
+                "title": "Racha de 7 días",
+                "description": "Mantén una racha de 7 días",
+                "icon": "fas fa-fire",
+                "unlocked": False,
+                "unlocked_at": None
+            }
+        ]
         
-        # Obtener progreso del usuario
-        user_progress = (
-            supabase.table("user_achievements")
-            .select("*")
-            .eq("user_id", str(user_id))
-            .execute()
-        )
-        
-        # Crear diccionario de progreso
-        progress_dict = {}
-        for progress in user_progress.data:
-            achievement_id = progress.get("achievement_id")
-            progress_dict[achievement_id] = progress
-        
-        # Combinar información
-        achievements = []
-        total_unlocked = 0
-        
-        for achievement in all_achievements.data:
-            achievement_id = achievement.get("id")
-            user_progress_data = progress_dict.get(achievement_id, {})
-            
-            is_unlocked = user_progress_data.get("unlocked_at") is not None
-            if is_unlocked:
-                total_unlocked += 1
-            
-            achievements.append({
-                "id": str(achievement_id),
-                "title": achievement.get("title"),
-                "description": achievement.get("description"),
-                "icon": achievement.get("icon"),
-                "category": achievement.get("category"),
-                "target_value": achievement.get("target_value"),
-                "current_progress": user_progress_data.get("current_progress", 0),
-                "unlocked": is_unlocked,
-                "unlocked_at": user_progress_data.get("unlocked_at")
-            })
+        total_unlocked = sum(1 for a in achievements if a["unlocked"])
         
         return {
             "achievements": achievements,
@@ -507,93 +356,12 @@ def get_user_achievements(user_id: UUID) -> Dict:
         }
         
     except Exception as e:
-        print(f"❌ Error getting user achievements: {e}")
+        print(f"❌ Error getting achievements: {e}")
         return {"achievements": [], "total_unlocked": 0}
 
-# ========== ACTUALIZACIÓN DE PERFIL ==========
+# ========== UTILIDADES ==========
 
-def update_user_profile(user_id: UUID, updates: Dict) -> Dict:
-    """Actualiza el perfil del usuario"""
-    try:
-        # Actualizar users_profile si hay campos relevantes
-        profile_updates = {}
-        if "notifications" in updates:
-            profile_updates["notifications_settings"] = updates["notifications"]
-        
-        if profile_updates:
-            supabase.table("users_profile").update(profile_updates).eq("id", str(user_id)).execute()
-        
-        # Aquí puedes agregar lógica para actualizar otros campos como idioma, objetivo, etc.
-        # en una tabla separada de preferencias si es necesario
-        
-        return {"success": True, "message": "Profile updated successfully"}
-        
-    except Exception as e:
-        print(f"❌ Error updating user profile: {e}")
-        return {"success": False, "error": str(e)}
-
-# ========== FUNCIONES LEGACY (mantener compatibilidad) ==========
-
-def get_user_profile(user_id: UUID) -> Dict:
-    """Función legacy - mantener para compatibilidad"""
-    return get_or_create_basic_profile(user_id)
-
-def is_trial_active(user_id: UUID) -> Dict:
-    """Verifica si el usuario está en periodo de prueba o suscripción"""
-    try:
-        result = (
-            supabase.table("users_profile")
-            .select("trial_start, onboarding_seen, is_subscribed, subscription_type")
-            .eq("id", str(user_id))
-            .maybe_single()
-            .execute()
-        )
-
-        if not result.data:
-            print("⚠️ Perfil no encontrado.")
-            return {
-                "trial_end": None,
-                "trial_active": False,
-                "is_subscribed": False,
-                "onboarding_seen": False,
-            }
-
-        profile = result.data
-        onboarding_seen = profile.get("onboarding_seen", False)
-        is_subscribed = profile.get("is_subscribed", False)
-        trial_start_str = profile.get("trial_start")
-        subscription_type = profile.get("subscription_type")
-
-        trial_active = False
-        trial_end = None
-
-        if trial_start_str and subscription_type == "trial":
-            trial_start = datetime.fromisoformat(trial_start_str.replace("Z", "+00:00"))
-            trial_end_dt = trial_start + timedelta(days=3)
-            now = datetime.now(timezone.utc)
-
-            if now <= trial_end_dt:
-                trial_active = True
-                trial_end = trial_end_dt.isoformat()
-
-        return {
-            "trial_end": trial_end,
-            "trial_active": trial_active,
-            "is_subscribed": is_subscribed,
-            "onboarding_seen": onboarding_seen,
-        }
-
-    except Exception as e:
-        print(f"❌ Error checking trial status: {e}")
-        return {
-            "trial_end": None,
-            "trial_active": False,
-            "is_subscribed": False,
-            "onboarding_seen": False,
-        }
-
-
-def mark_onboarding_seen(user_id: str):
+def mark_onboarding_seen(user_id: str) -> Dict:
     """Marca el onboarding como visto"""
     try:
         supabase.table("users_profile").update({
@@ -601,7 +369,8 @@ def mark_onboarding_seen(user_id: str):
             "updated_at": datetime.now(timezone.utc).isoformat()
         }).eq("id", user_id).execute()
         
-        return {"success": True}
+        return {"message": "Onboarding marked as seen"}
+        
     except Exception as e:
-        print(f"❌ Error marking onboarding seen: {e}")
-        return {"success": False, "error": str(e)}
+        print(f"❌ Error marking onboarding: {e}")
+        raise Exception(f"Failed to mark onboarding: {str(e)}")
