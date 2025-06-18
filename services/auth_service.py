@@ -1,8 +1,9 @@
-# services/auth_service.py - CORREGIDO
+# services/auth_service.py - HOTFIX CORREGIDO
 from supabase import create_client, Client
 import os
 from dotenv import load_dotenv
 from typing import Dict, Any
+from datetime import datetime, timezone
 
 load_dotenv()
 
@@ -28,10 +29,9 @@ def signup_user(email: str, password: str, name: str = None) -> Dict[str, Any]:
         })
 
         if response.user:
-            # Crear perfil en users_profile
-            from services.user_service import create_default_profile
-            from uuid import UUID
-            create_default_profile(UUID(response.user.id))
+            # ✅ CORREGIDO: Crear perfil con manejo de duplicados
+            profile_result = create_basic_profile(response.user.id)
+            print(f"📋 Profile creation result: {profile_result}")
 
         return {
             "success": True,
@@ -46,14 +46,103 @@ def signup_user(email: str, password: str, name: str = None) -> Dict[str, Any]:
         
         # Manejo de errores específicos
         if "User already registered" in error_msg:
-            return {"error": "User already registered", "success": False}
+            return {"error": "El usuario ya está registrado", "success": False}
         elif "Invalid email" in error_msg:
-            return {"error": "Invalid email", "success": False}
+            return {"error": "Email inválido", "success": False}
         elif "Password should be at least" in error_msg:
-            return {"error": "Password should be at least 6 characters", "success": False}
+            return {"error": "La contraseña debe tener al menos 6 caracteres", "success": False}
         else:
-            return {"error": error_msg, "success": False}
+            return {"error": "Error en el registro", "success": False}
 
+def create_basic_profile(user_id: str) -> Dict:
+    """Crea perfil básico del usuario - función independiente con manejo de duplicados"""
+    try:
+        user_id_str = str(user_id)
+        now = datetime.now(timezone.utc).isoformat()
+        
+        # ✅ CORREGIDO: Verificar si ya existe antes de crear
+        existing_check = supabase.table("users_profile").select("id").eq("id", user_id_str).execute()
+        
+        if existing_check.data and len(existing_check.data) > 0:
+            print(f"ℹ️ Perfil ya existe para usuario {user_id_str}")
+            return {"success": True, "message": "Profile already exists"}
+        
+        # ✅ CORREGIDO: Crear perfil básico con campos mínimos
+        new_profile = {
+            "id": user_id_str,
+            "trial_start": now,
+            "onboarding_seen": False,
+            "subscription_type": "trial",
+            "is_subscribed": False,  # ✅ Agregado campo requerido
+            "created_at": now,
+            "updated_at": now
+        }
+        
+        profile_result = supabase.table("users_profile").insert(new_profile).execute()
+        print(f"✅ Perfil creado: {profile_result.data}")
+        
+        # ✅ CORREGIDO: Crear estadísticas con manejo de duplicados
+        stats_check = supabase.table("user_stats").select("id").eq("user_id", user_id_str).execute()
+        
+        if not (stats_check.data and len(stats_check.data) > 0):
+            initial_stats = {
+                "user_id": user_id_str,
+                "total_conversations": 0,
+                "current_streak": 0,
+                "longest_streak": 0,
+                "total_words_learned": 0,
+                "total_session_minutes": 0,
+                "conversations_this_month": 0,
+                "words_this_month": 0,
+                "last_activity_at": now,
+                "streak_updated_at": now
+            }
+            
+            stats_result = supabase.table("user_stats").insert(initial_stats).execute()
+            print(f"✅ Estadísticas creadas: {stats_result.data}")
+        else:
+            print(f"ℹ️ Estadísticas ya existen para usuario {user_id_str}")
+        
+        print(f"✅ Perfil básico completado para usuario {user_id_str}")
+        return {"success": True, "message": "Profile created successfully"}
+        
+    except Exception as e:
+        error_msg = str(e)
+        print(f"❌ Error creating basic profile: {error_msg}")
+        
+        # ✅ MEJORADO: Manejo específico de errores
+        if "duplicate key" in error_msg and "users_profile_pkey" in error_msg:
+            # El usuario ya existe, no es un error crítico
+            print(f"ℹ️ Usuario {user_id_str} ya tiene perfil, continuando...")
+            return {"success": True, "message": "Profile already exists"}
+        elif "JSON could not be generated" in error_msg:
+            # Error de Cloudflare/Supabase, reintenta con datos mínimos
+            print(f"⚠️ Error de JSON, reintentando con datos mínimos...")
+            return create_minimal_profile(user_id_str)
+        else:
+            return {"success": False, "error": error_msg}
+
+def create_minimal_profile(user_id: str) -> Dict:
+    """Crea un perfil mínimo en caso de errores con el perfil completo"""
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        
+        # Perfil mínimo solo con campos esenciales
+        minimal_profile = {
+            "id": user_id,
+            "trial_start": now,
+            "onboarding_seen": False,
+            "is_subscribed": False
+        }
+        
+        result = supabase.table("users_profile").upsert(minimal_profile).execute()
+        print(f"✅ Perfil mínimo creado: {result.data}")
+        
+        return {"success": True, "message": "Minimal profile created"}
+        
+    except Exception as e:
+        print(f"❌ Error creating minimal profile: {e}")
+        return {"success": False, "error": str(e)}
 
 def login_user(email: str, password: str) -> Dict[str, Any]:
     """Inicia sesión de usuario"""
@@ -64,12 +153,10 @@ def login_user(email: str, password: str) -> Dict[str, Any]:
         })
 
         if not result.session or not result.user:
-            return {"error": "Invalid login credentials", "success": False}
+            return {"error": "Credenciales inválidas", "success": False}
 
-        # Asegurar que el perfil existe
-        from services.user_service import get_user_profile
-        from uuid import UUID
-        profile = get_user_profile(UUID(result.user.id))
+        # ✅ CORREGIDO: Asegurar que el perfil existe al hacer login
+        profile = get_or_ensure_user_profile(result.user.id)
 
         return {
             "success": True,
@@ -93,12 +180,36 @@ def login_user(email: str, password: str) -> Dict[str, Any]:
         
         # Manejo de errores específicos
         if "Invalid login credentials" in error_msg:
-            return {"error": "Invalid login credentials", "success": False}
+            return {"error": "Credenciales inválidas", "success": False}
         elif "Email not confirmed" in error_msg:
-            return {"error": "Email not confirmed", "success": False}
+            return {"error": "Email no confirmado", "success": False}
         else:
-            return {"error": error_msg, "success": False}
+            return {"error": "Error en el login", "success": False}
 
+def get_or_ensure_user_profile(user_id: str) -> Dict:
+    """Obtiene perfil básico del usuario y lo crea si no existe"""
+    try:
+        result = supabase.table("users_profile").select("*").eq("id", user_id).execute()
+        
+        if result.data and len(result.data) > 0:
+            return result.data[0]
+        else:
+            # Si no existe, crear uno básico
+            print(f"⚠️ Perfil no encontrado para {user_id}, creando...")
+            create_result = create_basic_profile(user_id)
+            
+            if create_result.get("success"):
+                # Intentar obtener nuevamente
+                retry_result = supabase.table("users_profile").select("*").eq("id", user_id).execute()
+                if retry_result.data and len(retry_result.data) > 0:
+                    return retry_result.data[0]
+            
+            # Si todo falla, retornar perfil mínimo
+            return {"id": user_id, "onboarding_seen": False, "is_subscribed": False}
+            
+    except Exception as e:
+        print(f"❌ Error getting user profile: {e}")
+        return {"id": user_id, "onboarding_seen": False, "is_subscribed": False}
 
 def logout_user(access_token: str) -> Dict[str, Any]:
     """Cierra sesión del usuario"""
@@ -123,7 +234,6 @@ def logout_user(access_token: str) -> Dict[str, Any]:
         # porque el frontend limpiará los tokens localmente
         return {"success": True, "message": "Logout completed"}
 
-
 def get_user_from_token(access_token: str) -> Dict[str, Any]:
     """Obtiene información del usuario desde el token"""
     try:
@@ -147,116 +257,8 @@ def get_user_from_token(access_token: str) -> Dict[str, Any]:
                 }
             }
         else:
-            return {"error": "Invalid token", "success": False}
+            return {"error": "Token inválido", "success": False}
             
     except Exception as e:
         print(f"❌ Error getting user from token: {e}")
         return {"error": str(e), "success": False}
-
-
-# routes/auth.py - ROUTES CORREGIDAS
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, EmailStr
-from typing import Optional
-from services.auth_service import signup_user, login_user, logout_user
-
-auth_router = APIRouter()
-
-class SignUpRequest(BaseModel):
-    email: EmailStr
-    password: str
-    name: Optional[str] = None
-
-class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str
-
-@auth_router.post("/signup")
-def signup_endpoint(request: SignUpRequest):
-    """Endpoint de registro"""
-    try:
-        result = signup_user(
-            email=request.email, 
-            password=request.password,
-            name=request.name
-        )
-        
-        if result.get("success"):
-            return {
-                "message": "Usuario registrado exitosamente. Revisa tu email para confirmar.",
-                "user": result.get("user"),
-                "session": result.get("session")
-            }
-        else:
-            raise HTTPException(
-                status_code=400, 
-                detail=result.get("error", "Error en el registro")
-            )
-            
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"❌ Error en signup endpoint: {e}")
-        raise HTTPException(status_code=500, detail="Error interno del servidor")
-
-
-@auth_router.post("/login")
-def login_endpoint(request: LoginRequest):
-    """Endpoint de login"""
-    try:
-        result = login_user(email=request.email, password=request.password)
-        
-        if result.get("success"):
-            return {
-                "access_token": result.get("access_token"),
-                "refresh_token": result.get("refresh_token"),
-                "user": result.get("user"),
-                "session": result.get("session"),
-                "profile": result.get("profile")
-            }
-        else:
-            raise HTTPException(
-                status_code=401, 
-                detail=result.get("error", "Credenciales inválidas")
-            )
-            
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"❌ Error en login endpoint: {e}")
-        raise HTTPException(status_code=500, detail="Error interno del servidor")
-
-
-@auth_router.post("/logout")
-def logout_endpoint(token: str = Query(..., description="Access token")):
-    """Endpoint de logout"""
-    try:
-        result = logout_user(token)
-        
-        if result.get("success"):
-            return {"message": "Logout exitoso"}
-        else:
-            return {"message": "Logout completado"} # Siempre éxito en logout
-            
-    except Exception as e:
-        print(f"⚠️ Error en logout endpoint: {e}")
-        return {"message": "Logout completado"} # Siempre éxito en logout
-
-
-@auth_router.get("/me")
-def get_current_user_info(token: str = Query(..., description="Access token")):
-    """Obtiene información del usuario actual"""
-    try:
-        from services.auth_service import get_user_from_token
-        result = get_user_from_token(token)
-        
-        if result.get("success"):
-            return result.get("user")
-        else:
-            raise HTTPException(status_code=401, detail="Token inválido")
-            
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"❌ Error getting current user: {e}")
-        raise HTTPException(status_code=500, detail="Error interno del servidor")
