@@ -1,4 +1,4 @@
-# routes/subscription.py - NUEVO ARCHIVO
+# routes/subscription.py - CORREGIDO CON ENDPOINTS FALTANTES
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -113,6 +113,43 @@ def create_checkout_endpoint(
     except HTTPException:
         raise
     except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating checkout: {str(e)}")
+
+# ========== NUEVO: ENDPOINT UPGRADE (para compatibilidad con Angular) ==========
+
+@subscription_router.post("/upgrade")
+def create_upgrade_endpoint(
+    request: CreateCheckoutRequest,
+    user_id: UUID = Depends(get_current_user)
+):
+    """
+    Crea una sesión de upgrade/checkout de Stripe (alias para compatibilidad)
+    Este endpoint es el que Angular está llamando
+    """
+    try:
+        print(f"🔄 Usuario {user_id} solicitando upgrade a plan: {request.plan_slug}")
+        
+        result = create_checkout_session(
+            user_id=user_id,
+            plan_slug=request.plan_slug,
+            billing_interval=request.billing_interval
+        )
+        
+        if result.get("success"):
+            print(f"✅ Checkout URL creada: {result.get('checkout_url')}")
+            return {
+                "success": True,
+                "checkout_url": result.get("checkout_url"),
+                "session_id": result.get("session_id")
+            }
+        else:
+            print(f"❌ Error creando checkout: {result.get('error')}")
+            raise HTTPException(status_code=400, detail=result.get("error", "Failed to create checkout"))
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error crítico en upgrade: {e}")
         raise HTTPException(status_code=500, detail=f"Error creating checkout: {str(e)}")
 
 # ========== ENDPOINTS DE GESTIÓN ==========
@@ -238,3 +275,35 @@ def check_premium_access_legacy(user_id: UUID = Depends(get_current_user)):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error checking premium access: {str(e)}")
+
+# ========== ENDPOINTS DE DEBUG ==========
+
+@subscription_router.get("/debug/user/{user_id}")
+def debug_user_subscription(user_id: UUID = Depends(get_current_user)):
+    """Endpoint de debug para verificar estado del usuario"""
+    try:
+        from services.subscription_service import supabase
+        
+        # Verificar usuario en auth
+        auth_user = supabase.auth.admin.get_user_by_id(str(user_id))
+        
+        # Verificar suscripciones
+        subscriptions = supabase.table("user_subscriptions").select("*").eq("user_id", str(user_id)).execute()
+        
+        # Verificar planes disponibles
+        plans = supabase.table("subscription_plans").select("*").eq("is_active", True).execute()
+        
+        return {
+            "success": True,
+            "debug_info": {
+                "user_exists": auth_user.user is not None,
+                "user_email": auth_user.user.email if auth_user.user else None,
+                "user_id": str(user_id),
+                "subscriptions": subscriptions.data,
+                "available_plans": plans.data,
+                "current_subscription": get_current_subscription(user_id)
+            }
+        }
+        
+    except Exception as e:
+        return {"success": False, "error": str(e)}

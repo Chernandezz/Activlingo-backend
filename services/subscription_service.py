@@ -2,6 +2,7 @@
 import os
 import stripe
 from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta 
 from uuid import UUID
 from supabase import create_client, Client
 from dotenv import load_dotenv
@@ -206,10 +207,12 @@ def handle_stripe_webhook(event_type: str, data: Dict) -> Dict:
             return handle_payment_succeeded(data)
         elif event_type == "invoice.payment_failed":
             return handle_payment_failed(data)
+        elif event_type == "invoice.paid":
+            return handle_payment_succeeded(data) 
         else:
             print(f"ℹ️ Evento no manejado: {event_type}")
             return {"success": True, "message": f"Event {event_type} acknowledged but not processed"}
-        
+                
     except Exception as e:
         print(f"❌ Error handling webhook {event_type}: {e}")
         return {"success": False, "error": str(e)}
@@ -222,32 +225,38 @@ def handle_checkout_completed(session_data: Dict) -> Dict:
         subscription_id = session_data.get("subscription")
         customer_id = session_data.get("customer")
         
+        print(f"🔍 Checkout completado - user_id: {user_id}, plan_id: {plan_id}, subscription_id: {subscription_id}")
+        
         if not user_id or not plan_id:
             return {"success": False, "error": "Missing user_id or plan_id in metadata"}
         
         # Obtener detalles de la suscripción de Stripe
         stripe_subscription = stripe.Subscription.retrieve(subscription_id)
+        print(f"🔍 Suscripción de Stripe obtenida: {stripe_subscription.id}")
         
-        # Crear registro de suscripción
+            # Crear registro de suscripción con campos obligatorios
+        now = datetime.now(timezone.utc)
+
         subscription_record = {
             "user_id": user_id,
             "plan_id": int(plan_id),
             "status": "active",
             "stripe_subscription_id": subscription_id,
             "stripe_customer_id": customer_id,
-            "starts_at": datetime.fromtimestamp(
-                stripe_subscription.current_period_start, 
-                tz=timezone.utc
-            ).isoformat(),
+            "starts_at": now.isoformat(),
             "current_period_start": datetime.fromtimestamp(
-                stripe_subscription.current_period_start, 
+                stripe_subscription.get('current_period_start', int(now.timestamp())),
                 tz=timezone.utc
-            ).isoformat(),
+            ).isoformat() if stripe_subscription.get('current_period_start') else now.isoformat(),
             "current_period_end": datetime.fromtimestamp(
-                stripe_subscription.current_period_end, 
+                stripe_subscription.get('current_period_end', int(now.timestamp()) + 30*24*60*60),
                 tz=timezone.utc
-            ).isoformat()
+            ).isoformat() if stripe_subscription.get('current_period_end') else (now + timedelta(days=30)).isoformat(),
+            "created_at": now.isoformat(),
+            "updated_at": now.isoformat()
         }
+        
+        print(f"🔍 Registro a insertar: {subscription_record}")
         
         # Cancelar cualquier suscripción activa anterior
         supabase.table("user_subscriptions").update({
@@ -262,10 +271,13 @@ def handle_checkout_completed(session_data: Dict) -> Dict:
             print(f"✅ Subscription created for user {user_id}")
             return {"success": True, "message": "Subscription activated"}
         else:
+            print(f"❌ Failed to create subscription record")
             return {"success": False, "error": "Failed to create subscription record"}
         
     except Exception as e:
         print(f"❌ Error handling checkout completed: {e}")
+        import traceback
+        traceback.print_exc()  # Para ver el error completo
         return {"success": False, "error": str(e)}
 
 def handle_subscription_created(subscription_data: Dict) -> Dict:

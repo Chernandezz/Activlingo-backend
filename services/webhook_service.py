@@ -17,7 +17,7 @@ def log_subscription_event(user_id: str, subscription_id: str, event_type: str, 
     try:
         event_data = {
             "user_id": user_id,
-            "subscription_id": subscription_id if subscription_id else None,
+            "subscription_id": str(subscription_id) if subscription_id else None,
             "event_type": event_type,
             "details": details,
             "created_at": datetime.now(timezone.utc).isoformat()
