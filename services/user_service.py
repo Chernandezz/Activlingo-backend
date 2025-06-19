@@ -1,4 +1,4 @@
-# services/user_service.py - LIMPIO Y ORGANIZADO
+# services/user_service.py - CON CÁLCULO DINÁMICO
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 from supabase import create_client, Client
@@ -16,7 +16,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # ========== PERFIL COMPLETO ==========
 
 def get_full_user_profile(user_id: UUID) -> Dict:
-    """Obtiene el perfil completo del usuario con estadísticas y suscripción"""
+    """Obtiene el perfil completo del usuario con estadísticas dinámicas"""
     try:
         user_id_str = str(user_id)
         
@@ -26,8 +26,8 @@ def get_full_user_profile(user_id: UUID) -> Dict:
         # Obtener o crear perfil básico
         profile = get_or_create_profile(user_id)
         
-        # Obtener estadísticas
-        stats = get_user_stats(user_id)
+        # Calcular estadísticas dinámicamente
+        stats = calculate_user_stats_dynamic(user_id)
         
         # Obtener suscripción actual
         subscription = get_current_subscription(user_id)
@@ -75,7 +75,6 @@ def get_or_create_profile(user_id: UUID) -> Dict:
         }
         
         result = supabase.table("users_profile").insert(new_profile).execute()
-        create_initial_user_stats(user_id)
         
         return result.data[0] if result.data else new_profile
         
@@ -96,70 +95,241 @@ def update_user_profile(user_id: UUID, updates: Dict) -> Dict:
         print(f"❌ Error updating profile: {e}")
         raise Exception(f"Failed to update profile: {str(e)}")
 
-# ========== ESTADÍSTICAS ==========
+# ========== ESTADÍSTICAS DINÁMICAS ==========
 
-def get_user_stats(user_id: UUID) -> Dict:
-    """Obtiene las estadísticas del usuario"""
+def calculate_user_stats_dynamic(user_id: UUID) -> Dict:
+    """Calcula todas las estadísticas dinámicamente desde las tablas fuente"""
     try:
-        result = supabase.table("user_stats").select("*").eq("user_id", str(user_id)).execute()
+        user_id_str = str(user_id)
+        now = datetime.now(timezone.utc)
         
-        if result.data and len(result.data) > 0:
-            stats = result.data[0]
-            return {
-                "total_conversations": stats.get("total_conversations", 0),
-                "current_streak": stats.get("current_streak", 0),
-                "longest_streak": stats.get("longest_streak", 0),
-                "total_words_learned": stats.get("total_words_learned", 0),
-                "average_session_minutes": calculate_average_session(stats),
-                "join_date": stats.get("created_at", ""),
-                "last_activity": stats.get("last_activity_at", ""),
-                "conversations_this_month": stats.get("conversations_this_month", 0),
-                "words_learned_this_month": stats.get("words_this_month", 0)
-            }
-        else:
-            return create_initial_user_stats(user_id)
-            
-    except Exception as e:
-        print(f"❌ Error getting user stats: {e}")
-        return get_default_stats()
-
-def create_initial_user_stats(user_id: UUID) -> Dict:
-    """Crea estadísticas iniciales para el usuario"""
-    try:
-        initial_stats = {
-            "user_id": str(user_id),
-            "total_conversations": 0,
-            "current_streak": 0,
-            "longest_streak": 0,
-            "total_words_learned": 0,
-            "total_session_minutes": 0,
-            "conversations_this_month": 0,
-            "words_this_month": 0,
-            "last_activity_at": datetime.now(timezone.utc).isoformat(),
-            "streak_updated_at": datetime.now(timezone.utc).isoformat()
+        # Obtener fecha de registro del usuario
+        join_date = get_user_join_date(user_id)
+        
+        # 1. CONVERSACIONES TOTALES
+        total_conversations = count_user_conversations(user_id_str)
+        
+        # 2. CONVERSACIONES ESTE MES
+        conversations_this_month = count_conversations_this_month(user_id_str, now)
+        
+        # 3. PALABRAS TOTALES APRENDIDAS
+        total_words_learned = count_total_words_learned(user_id_str)
+        
+        # 4. PALABRAS ESTE MES
+        words_this_month = count_words_this_month(user_id_str, now)
+        
+        # 5. ÚLTIMA ACTIVIDAD
+        last_activity = get_last_activity(user_id_str)
+        
+        # 6. RACHA ACTUAL Y MÁXIMA
+        streak_data = calculate_user_streaks(user_id_str, now)
+        
+        
+        return {
+            "total_conversations": total_conversations,
+            "current_streak": streak_data["current_streak"],
+            "longest_streak": streak_data["longest_streak"],
+            "total_words_learned": total_words_learned,
+            "join_date": join_date,
+            "last_activity": last_activity,
+            "conversations_this_month": conversations_this_month,
+            "words_learned_this_month": words_this_month
         }
         
-        result = supabase.table("user_stats").insert(initial_stats).execute()
-        
-        if result.data:
-            stats = result.data[0]
-            return {
-                "total_conversations": 0,
-                "current_streak": 0,
-                "longest_streak": 0,
-                "total_words_learned": 0,
-                "average_session_minutes": 0,
-                "join_date": stats.get("created_at", ""),
-                "last_activity": stats.get("last_activity_at", ""),
-                "conversations_this_month": 0,
-                "words_learned_this_month": 0
-            }
-        
+    except Exception as e:
+        print(f"❌ Error calculating dynamic stats: {e}")
         return get_default_stats()
+
+def count_user_conversations(user_id_str: str) -> int:
+    """Cuenta total de conversaciones del usuario"""
+    try:
+        result = (
+            supabase.table("chats")
+            .select("id", count="exact")
+            .eq("user_id", user_id_str)
+            .execute()
+        )
+        return result.count or 0
+    except Exception as e:
+        print(f"❌ Error counting conversations: {e}")
+        return 0
+
+def count_conversations_this_month(user_id_str: str, now: datetime) -> int:
+    """Cuenta conversaciones creadas este mes"""
+    try:
+        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        
+        result = (
+            supabase.table("chats")
+            .select("id", count="exact")
+            .eq("user_id", user_id_str)
+            .gte("created_at", start_of_month.isoformat())
+            .execute()
+        )
+        return result.count or 0
+    except Exception as e:
+        print(f"❌ Error counting conversations this month: {e}")
+        return 0
+
+def count_total_words_learned(user_id_str: str) -> int:
+    """Cuenta total de palabras en el diccionario del usuario"""
+    try:
+        result = (
+            supabase.table("user_dictionary")
+            .select("id", count="exact")
+            .eq("user_id", user_id_str)
+            .execute()
+        )
+        return result.count or 0
+    except Exception as e:
+        print(f"❌ Error counting total words: {e}")
+        return 0
+
+def count_words_this_month(user_id_str: str, now: datetime) -> int:
+    """Cuenta palabras aprendidas este mes"""
+    try:
+        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        
+        result = (
+            supabase.table("user_dictionary")
+            .select("id", count="exact")
+            .eq("user_id", user_id_str)
+            .gte("created_at", start_of_month.isoformat())
+            .execute()
+        )
+        return result.count or 0
+    except Exception as e:
+        print(f"❌ Error counting words this month: {e}")
+        return 0
+
+def get_last_activity(user_id_str: str) -> str:
+    """Obtiene la fecha de última actividad (último chat o palabra agregada)"""
+    try:
+        # Último chat
+        last_chat = (
+            supabase.table("chats")
+            .select("created_at")
+            .eq("user_id", user_id_str)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        
+        # Última palabra
+        last_word = (
+            supabase.table("user_dictionary")
+            .select("created_at")
+            .eq("user_id", user_id_str)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        
+        dates = []
+        if last_chat.data:
+            dates.append(last_chat.data[0]["created_at"])
+        if last_word.data:
+            dates.append(last_word.data[0]["created_at"])
+        
+        if dates:
+            return max(dates)
+        
+        return datetime.now(timezone.utc).isoformat()
         
     except Exception as e:
-        print(f"❌ Error creating initial stats: {e}")
-        return get_default_stats()
+        print(f"❌ Error getting last activity: {e}")
+        return datetime.now(timezone.utc).isoformat()
+
+def calculate_user_streaks(user_id_str: str, now: datetime) -> Dict:
+    """Calcula racha actual y máxima basado en días con actividad"""
+    try:
+        # Obtener todas las fechas de actividad (chats creados)
+        result = (
+            supabase.table("chats")
+            .select("created_at")
+            .eq("user_id", user_id_str)
+            .order("created_at", desc=False)
+            .execute()
+        )
+        
+        if not result.data:
+            return {"current_streak": 0, "longest_streak": 0}
+        
+        # Convertir a fechas y obtener días únicos
+        activity_dates = set()
+        for chat in result.data:
+            date = datetime.fromisoformat(chat["created_at"].replace("Z", "+00:00"))
+            activity_dates.add(date.date())
+        
+        # Ordenar fechas
+        sorted_dates = sorted(list(activity_dates))
+        
+        if not sorted_dates:
+            return {"current_streak": 0, "longest_streak": 0}
+        
+        # Calcular racha actual
+        current_streak = 0
+        today = now.date()
+        yesterday = today - timedelta(days=1)
+        
+        # Verificar si hay actividad hoy o ayer
+        if today in activity_dates or yesterday in activity_dates:
+            current_streak = 1
+            check_date = yesterday if yesterday in activity_dates else today
+            
+            # Contar días consecutivos hacia atrás
+            for i in range(1, len(sorted_dates)):
+                prev_date = check_date - timedelta(days=i)
+                if prev_date in activity_dates:
+                    current_streak += 1
+                else:
+                    break
+        
+        # Calcular racha máxima
+        longest_streak = 1
+        temp_streak = 1
+        
+        for i in range(1, len(sorted_dates)):
+            if (sorted_dates[i] - sorted_dates[i-1]).days == 1:
+                temp_streak += 1
+                longest_streak = max(longest_streak, temp_streak)
+            else:
+                temp_streak = 1
+        
+        return {
+            "current_streak": current_streak,
+            "longest_streak": longest_streak
+        }
+        
+    except Exception as e:
+        print(f"❌ Error calculating streaks: {e}")
+        return {"current_streak": 0, "longest_streak": 0}
+
+
+def get_user_join_date(user_id: UUID) -> str:
+    """Obtiene la fecha de registro del usuario"""
+    try:
+        # Intentar desde el perfil
+        result = (
+            supabase.table("users_profile")
+            .select("created_at")
+            .eq("id", str(user_id))
+            .execute()
+        )
+        
+        if result.data and result.data[0].get("created_at"):
+            return result.data[0]["created_at"]
+        
+        # Si no, desde auth
+        auth_user = supabase.auth.admin.get_user_by_id(str(user_id))
+        if auth_user and auth_user.user:
+            return str(auth_user.user.created_at)
+        
+        return datetime.now(timezone.utc).isoformat()
+        
+    except Exception as e:
+        print(f"❌ Error getting join date: {e}")
+        return datetime.now(timezone.utc).isoformat()
 
 def get_default_stats() -> Dict:
     """Retorna estadísticas por defecto"""
@@ -169,21 +339,19 @@ def get_default_stats() -> Dict:
         "current_streak": 0,
         "longest_streak": 0,
         "total_words_learned": 0,
-        "average_session_minutes": 0,
         "join_date": now,
         "last_activity": now,
         "conversations_this_month": 0,
         "words_learned_this_month": 0
     }
 
-def calculate_average_session(stats: Dict) -> int:
-    """Calcula el promedio de minutos por sesión"""
-    total_minutes = stats.get("total_session_minutes", 0)
-    total_conversations = stats.get("total_conversations", 0)
-    
-    return int(total_minutes / total_conversations) if total_conversations > 0 else 0
+# ========== FUNCIÓN SIMPLIFICADA PARA ESTADÍSTICAS ==========
 
-# ========== SUSCRIPCIONES ==========
+def get_user_stats(user_id: UUID) -> Dict:
+    """Función simplificada que solo retorna estadísticas dinámicas"""
+    return calculate_user_stats_dynamic(user_id)
+
+# ========== SUSCRIPCIONES (SIN CAMBIOS) ==========
 
 def get_current_subscription(user_id: UUID) -> Optional[Dict]:
     """Obtiene la suscripción actual del usuario"""
@@ -298,7 +466,7 @@ def get_available_plans() -> List[Dict]:
         print(f"❌ Error getting available plans: {e}")
         return []
 
-# ========== TRIAL ==========
+# ========== TRIAL (SIN CAMBIOS) ==========
 
 def start_user_trial(user_id: UUID) -> Dict:
     """Inicia el período de prueba gratuita"""
@@ -323,7 +491,7 @@ def start_user_trial(user_id: UUID) -> Dict:
         print(f"❌ Error starting trial: {e}")
         return {"success": False, "message": "Failed to start trial"}
 
-# ========== LOGROS ==========
+# ========== LOGROS (SIN CAMBIOS) ==========
 
 def get_user_achievements(user_id: UUID) -> Dict:
     """Obtiene los logros del usuario"""
@@ -359,7 +527,7 @@ def get_user_achievements(user_id: UUID) -> Dict:
         print(f"❌ Error getting achievements: {e}")
         return {"achievements": [], "total_unlocked": 0}
 
-# ========== UTILIDADES ==========
+# ========== UTILIDADES (SIN CAMBIOS) ==========
 
 def mark_onboarding_seen(user_id: str) -> Dict:
     """Marca el onboarding como visto"""

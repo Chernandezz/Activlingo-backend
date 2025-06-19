@@ -21,7 +21,6 @@ class StatsResponse(BaseModel):
     current_streak: int
     longest_streak: int
     total_words_learned: int
-    average_session_minutes: int
     join_date: str
     last_activity: str
     conversations_this_month: int
