@@ -6,7 +6,7 @@ def get_tasks_for_chat(chat_id: UUID) -> list[dict]:
     response = (
         supabase
         .table("chat_missions")
-        .select("id, description, completed")
+        .select("id, description, completed, chat_id, created_at")
         .eq("chat_id", str(chat_id))
         .execute()
     )
